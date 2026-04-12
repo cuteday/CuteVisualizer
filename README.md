@@ -60,44 +60,6 @@ python tools/build_manifest.py --methods-dir /path/to/methods --output /path/to/
 
 `--match basename` is useful when method folders have mostly the same filenames but different subdirectory layouts. If a single method contains duplicate basenames, the script will stop and ask you to use relative-path matching instead.
 
-## GitHub Pages Demo Deployment
-
-This repository includes a GitHub Actions workflow at `.github/workflows/deploy-demo.yml` that publishes a hosted demo site to GitHub Pages.
-
-### What the workflow does
-
-- checks out the repository on the GitHub runner
-- installs Python using `actions/setup-python`
-- runs `python tools/generate_sample_data.py`
-- runs `python tools/build_manifest.py`
-- stages the static site as:
-  - `index.html`
-  - `src/`
-  - `public/`
-- uploads the staged site as a Pages artifact
-- deploys the artifact using the official GitHub Pages actions
-
-### Triggers
-
-- push to `main`
-- manual run through `workflow_dispatch`
-
-### One-time repository setting
-
-In the GitHub repository settings, set **Pages** to deploy from **GitHub Actions**.
-
-### Post-deploy verification
-
-After the workflow succeeds, confirm the published site loads:
-
-- `index.html`
-- `src/main.js`
-- `src/styles.css`
-- `public/data/manifest.json`
-- demo PNGs under `public/data/methods/`
-
-The hosted site should behave like the local static version and show the generated sample methods and images.
-
 ## Usage Notes
 
 - Use the top checkbox row to choose which methods are visible.
