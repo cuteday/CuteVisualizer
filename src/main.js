@@ -9,7 +9,7 @@ import {
 import {
   DEFAULT_VIEWPORT,
   canPan,
-  getImageStyle,
+  getImageRect,
   panViewport,
   zoomViewportAtPoint,
 } from './lib/viewport.js';
@@ -82,24 +82,27 @@ class ComparisonPanel {
     this.header.append(this.methodTag, this.metaTag);
 
     this.stage = createElement('div', 'panel-stage');
-    this.image = createElement('img', 'panel-image');
-    this.image.alt = `${method.label}: ${imageLabel}`;
-    this.image.src = imagePath;
+    this.canvas = createElement('canvas', 'panel-canvas');
+    this.canvas.setAttribute('role', 'img');
+    this.canvas.setAttribute('aria-label', `${method.label}: ${imageLabel}`);
+    this.canvasContext = this.canvas.getContext('2d');
+    this.image = new Image();
     this.image.draggable = false;
+    this.image.decoding = 'async';
 
     this.overlay = createElement('div', 'panel-overlay');
     this.overlay.textContent = 'Scroll to zoom. Drag with left mouse button to pan.';
 
-    this.stage.append(this.image, this.overlay);
+    this.stage.append(this.canvas, this.overlay);
     this.element.append(this.header, this.stage);
 
     this.image.addEventListener('load', this.handleImageLoad);
     this.image.addEventListener('error', this.handleImageError);
-    this.image.addEventListener('dragstart', (event) => event.preventDefault());
     this.stage.addEventListener('wheel', this.handleWheel, { passive: false });
     this.stage.addEventListener('mousedown', this.handleMouseDown);
     window.addEventListener('mousemove', this.handleMouseMove);
     window.addEventListener('mouseup', this.handleMouseUp);
+    this.image.src = imagePath;
 
     if (window.ResizeObserver) {
       this.resizeObserver = new ResizeObserver(this.handleResize);
@@ -221,12 +224,11 @@ class ComparisonPanel {
   }
 
   refreshLayout() {
-    if (!this.naturalSize) {
+    if (!this.naturalSize || !this.canvasContext) {
       return;
     }
 
-    const imageStyle = getImageStyle(this.viewport, this.getStageSize(), this.naturalSize);
-    Object.assign(this.image.style, imageStyle);
+    this.drawCanvas();
   }
 
   updateCursor() {
@@ -241,6 +243,45 @@ class ComparisonPanel {
     }
 
     this.stage.style.cursor = canPan(this.viewport) ? 'grab' : 'zoom-in';
+  }
+
+  drawCanvas() {
+    const stageSize = this.getStageSize();
+    const devicePixelRatio = window.devicePixelRatio || 1;
+    const targetWidth = Math.max(Math.round(stageSize.width * devicePixelRatio), 1);
+    const targetHeight = Math.max(Math.round(stageSize.height * devicePixelRatio), 1);
+
+    if (this.canvas.width !== targetWidth || this.canvas.height !== targetHeight) {
+      this.canvas.width = targetWidth;
+      this.canvas.height = targetHeight;
+      this.canvas.style.width = `${stageSize.width}px`;
+      this.canvas.style.height = `${stageSize.height}px`;
+    }
+
+    const context = this.canvasContext;
+    const imageRect = getImageRect(this.viewport, stageSize, this.naturalSize);
+    const isZoomed = this.viewport.zoom > 1;
+
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    context.imageSmoothingEnabled = !isZoomed;
+    if ('mozImageSmoothingEnabled' in context) {
+      context.mozImageSmoothingEnabled = !isZoomed;
+    }
+    if ('webkitImageSmoothingEnabled' in context) {
+      context.webkitImageSmoothingEnabled = !isZoomed;
+    }
+    context.imageSmoothingQuality = isZoomed ? 'low' : 'high';
+    context.drawImage(
+      this.image,
+      imageRect.left,
+      imageRect.top,
+      imageRect.width,
+      imageRect.height,
+    );
+
+    this.element.classList.toggle('is-zoomed', isZoomed);
   }
 }
 
@@ -685,6 +726,8 @@ class CuteVisualizerApp {
       button.type = 'button';
       button.disabled = shouldDisable;
       button.setAttribute('aria-pressed', String(isSelected));
+      button.title = method.label;
+      button.setAttribute('aria-label', method.label);
       if (isSelected) {
         button.classList.add('is-selected');
       }
@@ -738,19 +781,42 @@ class CuteVisualizerApp {
     filteredImages.forEach((image) => {
       const button = createElement('button', 'image-list-item');
       button.type = 'button';
+      const fullImageLabel =
+        image.label === image.key ? image.key : `${image.label}\n${image.key}`;
+      button.title = fullImageLabel;
+      button.setAttribute('aria-label', fullImageLabel.replace('\n', ' - '));
       if (image.id === this.state.selectedImageId) {
         button.classList.add('is-active');
       }
 
+      const thumbnailMethodId = image.availableIn[0];
+      const thumbnailPath = thumbnailMethodId ? image.paths[thumbnailMethodId] : '';
+      const thumbFrame = createElement('div', 'image-item-thumb-frame');
+      const thumb = createElement('img', 'image-item-thumb');
+      thumb.alt = '';
+      thumb.loading = 'lazy';
+      thumb.decoding = 'async';
+      thumb.src = thumbnailPath;
+      thumb.title = image.key;
+      thumb.addEventListener('error', () => {
+        thumbFrame.classList.add('is-empty');
+        thumb.remove();
+      });
+      thumbFrame.appendChild(thumb);
+
+      const copy = createElement('div', 'image-item-copy');
       const title = createElement('span', 'image-item-title', image.label);
+      title.title = image.label;
       const key = createElement('span', 'image-item-key', image.key);
+      key.title = image.key;
       const meta = createElement(
         'span',
         'image-item-meta',
         `${image.availableIn.length}/${manifest.methods.length} methods`,
       );
+      copy.append(title, key, meta);
 
-      button.append(title, key, meta);
+      button.append(thumbFrame, copy);
       button.addEventListener('click', () => this.setCurrentImage(image.id));
       this.imageList.appendChild(button);
     });
@@ -779,6 +845,8 @@ class CuteVisualizerApp {
     );
     leftCluster.append(title, subtitle);
 
+    const rightCluster = createElement('div', 'toolbar-side');
+
     const actionCluster = createElement('div', 'toolbar-actions');
     const previousButton = createElement('button', 'secondary-button', 'Previous');
     previousButton.type = 'button';
@@ -796,13 +864,14 @@ class CuteVisualizerApp {
 
     actionCluster.append(previousButton, nextButton, resetButton);
 
-    const infoCluster = createElement('div', 'toolbar-cluster toolbar-stats');
+    const infoCluster = createElement('div', 'toolbar-stats');
     this.toolbarZoomStat = createElement('span', 'toolbar-stat');
     this.toolbarPanelStat = createElement('span', 'toolbar-stat');
     this.toolbarImageStat = createElement('span', 'toolbar-stat');
     infoCluster.append(this.toolbarZoomStat, this.toolbarPanelStat, this.toolbarImageStat);
 
-    this.toolbarCard.append(leftCluster, infoCluster, actionCluster);
+    rightCluster.append(infoCluster, actionCluster);
+    this.toolbarCard.append(leftCluster, rightCluster);
     this.updateToolbarStats();
   }
 

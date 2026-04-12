@@ -61,15 +61,15 @@ function withAlpha(hex, alpha) {
 
 export function buildThemeTokens(baseColor) {
   const accent = normalizeHex(baseColor);
-  const accentSoft = mixColors(accent, '#ffffff', 0.68);
-  const accentMuted = mixColors(accent, '#ffffff', 0.84);
-  const accentStrong = mixColors(accent, '#8a4764', 0.38);
-  const pageBg = mixColors(accent, '#fffafc', 0.92);
-  const surface = mixColors(accent, '#ffffff', 0.9);
-  const surfaceStrong = mixColors(accent, '#ffffff', 0.8);
-  const surfaceMuted = mixColors(accent, '#fff3f7', 0.72);
-  const border = mixColors(accent, '#ffffff', 0.55);
-  const borderStrong = mixColors(accent, '#d38ca4', 0.25);
+  const accentSoft = mixColors(accent, '#ffffff', 0.74);
+  const accentMuted = mixColors(accent, '#ffffff', 0.88);
+  const accentStrong = mixColors(accent, '#ffffff', 0.22);
+  const pageBg = mixColors(accent, '#fffafc', 0.95);
+  const surface = mixColors(accent, '#ffffff', 0.94);
+  const surfaceStrong = mixColors(accent, '#ffffff', 0.9);
+  const surfaceMuted = mixColors(accent, '#fff7fa', 0.82);
+  const border = mixColors(accent, '#ffffff', 0.68);
+  const borderStrong = mixColors(accent, '#ffffff', 0.48);
 
   return {
     '--accent': accent,
@@ -84,7 +84,7 @@ export function buildThemeTokens(baseColor) {
     '--border-strong': borderStrong,
     '--text-primary': '#2f2941',
     '--text-secondary': '#6c6480',
-    '--shadow-color': withAlpha(accentStrong, 0.18),
+    '--shadow-color': withAlpha(accent, 0.12),
   };
 }
 

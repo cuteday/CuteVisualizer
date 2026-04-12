@@ -5,11 +5,15 @@ export const DEFAULT_VIEWPORT = {
 };
 
 const MIN_ZOOM = 1;
-const MAX_ZOOM = 12;
-const ZOOM_FACTOR = 1.12;
+const MAX_ZOOM = 30;
+const ZOOM_FACTOR = 1.10;
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
+}
+
+function roundPx(value) {
+  return Math.round(value);
 }
 
 function getScaledSize(container, natural, zoom) {
@@ -50,12 +54,22 @@ function toViewportFromRect(rect, container, zoom) {
 }
 
 export function getImageStyle(viewport, container, natural) {
-  const rect = toDisplayRect(viewport, container, natural);
+  const rect = getImageRect(viewport, container, natural);
   return {
     width: `${rect.width}px`,
     height: `${rect.height}px`,
     left: `${rect.left}px`,
     top: `${rect.top}px`,
+  };
+}
+
+export function getImageRect(viewport, container, natural) {
+  const rect = toDisplayRect(viewport, container, natural);
+  return {
+    width: roundPx(rect.width),
+    height: roundPx(rect.height),
+    left: roundPx(rect.left),
+    top: roundPx(rect.top),
   };
 }
 
