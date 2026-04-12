@@ -114,22 +114,23 @@ code {
 .section-title-group {
   display: flex;
   flex-direction: column;
-  gap: 0.08rem;
+  gap: 0.14rem;
   min-width: 0;
 }
 
 .section-label {
-  font-size: 0.67rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: var(--text-secondary);
+  color: var(--text-primary);
 }
 
 .section-title {
-  font-size: 0.82rem;
-  font-weight: 700;
-  line-height: 1.2;
+  font-size: 0.68rem;
+  font-weight: 500;
+  line-height: 1.15;
+  color: var(--text-secondary);
 }
 
 .section-meta {
@@ -234,9 +235,17 @@ code {
   width: 100%;
   padding: 0.48rem 0.6rem;
   border: 1px solid var(--border-strong);
-  border-radius: 0;
+  border-radius: 0.55rem;
   background: var(--surface);
   font-size: 0.74rem;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    background-color 120ms ease;
+}
+
+.search-input::placeholder {
+  color: color-mix(in srgb, var(--text-secondary) 68%, white 32%);
 }
 
 .image-list {
@@ -270,6 +279,7 @@ code {
   height: var(--thumb-size);
   overflow: hidden;
   border: 1px solid var(--border);
+  border-radius: 0.42rem;
   background: var(--surface-muted);
 }
 
@@ -404,6 +414,12 @@ code {
   font-weight: 600;
   white-space: nowrap;
   transition: background-color 120ms ease;
+}
+
+.footer-button {
+  border: 1px solid var(--border-strong);
+  border-radius: 0.5rem;
+  padding-inline: 0.72rem;
 }
 
 .toolbar-actions .primary-button,
@@ -613,7 +629,7 @@ code {
 .theme-color-picker {
   height: 1.8rem;
   border: 1px solid var(--border-strong);
-  border-radius: 0;
+  border-radius: 0.5rem;
   background: var(--surface);
 }
 
@@ -628,15 +644,30 @@ code {
   padding: 0.1rem;
 }
 
+.search-input:focus-visible,
+.theme-select:focus-visible,
+.theme-color-picker:focus-visible,
+.footer-button:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-soft) 78%, white 22%);
+}
+
 .methods-list::-webkit-scrollbar,
 .image-list::-webkit-scrollbar {
   width: 0.55rem;
   height: 0.55rem;
 }
 
+.methods-list::-webkit-scrollbar-track,
+.image-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 .methods-list::-webkit-scrollbar-thumb,
 .image-list::-webkit-scrollbar-thumb {
   background: var(--border-strong);
+  border-radius: 999px;
+  border: 1px solid var(--accent-soft);
 }
 
 @media (max-width: 1100px) {
