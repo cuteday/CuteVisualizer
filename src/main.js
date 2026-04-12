@@ -260,7 +260,7 @@ class ComparisonGridView {
       const emptyState = createElement('div', 'comparison-empty');
       emptyState.innerHTML = `
         <h3>Select at least one method</h3>
-        <p>Use the checkboxes above to choose up to nine outputs for the current image.</p>
+        <p>Use the method buttons above to choose up to nine outputs for the current image.</p>
       `;
       this.container.appendChild(emptyState);
       return;
@@ -320,16 +320,11 @@ class CuteVisualizerApp {
   renderShell() {
     this.root.innerHTML = `
       <div class="app-shell">
-        <header class="card hero-card">
-          <div class="hero-copy" id="heroCopy"></div>
-          <div class="hero-actions" id="heroActions"></div>
-        </header>
-
-        <section class="card controls-card">
-          <div class="section-header">
-            <div>
-              <p class="eyebrow">Method Selection</p>
-              <h2>Choose up to nine outputs</h2>
+        <section class="method-strip">
+          <div class="strip-header">
+            <div class="section-title-group">
+              <div class="section-label">Methods</div>
+              <div class="section-title">Select up to nine outputs</div>
             </div>
             <div class="section-meta" id="methodSectionMeta"></div>
           </div>
@@ -337,52 +332,52 @@ class CuteVisualizerApp {
         </section>
 
         <div class="workspace">
-          <aside class="card image-sidebar">
-            <div class="section-header">
-              <div>
-                <p class="eyebrow">Image Browser</p>
-                <h2>Pick the reference image</h2>
+          <aside class="image-sidebar">
+            <div class="panel-bar">
+              <div class="section-title-group">
+                <div class="section-label">Images</div>
+                <div class="section-title">Choose an image key</div>
               </div>
               <div class="section-meta" id="imageSectionMeta"></div>
             </div>
-
-            <label class="search-label" for="imageSearch">Search images</label>
-            <input
-              id="imageSearch"
-              class="search-input"
-              type="search"
-              placeholder="Filter by name or relative path"
-            />
+            <div class="sidebar-search-row">
+              <input
+                id="imageSearch"
+                class="search-input"
+                type="search"
+                placeholder="Filter by name or relative path"
+                aria-label="Search images"
+              />
+            </div>
             <div class="image-list" id="imageList"></div>
           </aside>
 
           <main class="visualizer-area">
-            <section class="card toolbar-card" id="toolbarCard"></section>
-            <section class="card comparison-card">
-              <div class="comparison-card-header">
-                <div>
-                  <p class="eyebrow">Comparison Area</p>
-                  <h2>Shared zoom and pan across all visible panels</h2>
-                </div>
-                <div class="section-meta" id="comparisonMeta"></div>
-              </div>
+            <section class="toolbar-bar" id="toolbarCard"></section>
+            <section class="comparison-area">
               <div class="comparison-mount" id="comparisonMount"></div>
             </section>
           </main>
         </div>
+
+        <footer class="app-footer">
+          <div class="footer-brand" id="footerBrand"></div>
+          <div class="footer-status" id="footerStatus"></div>
+          <div class="footer-controls" id="footerControls"></div>
+        </footer>
       </div>
     `;
 
-    this.heroCopy = document.getElementById('heroCopy');
-    this.heroActions = document.getElementById('heroActions');
     this.methodsList = document.getElementById('methodsList');
     this.methodSectionMeta = document.getElementById('methodSectionMeta');
     this.imageSectionMeta = document.getElementById('imageSectionMeta');
     this.imageSearchInput = document.getElementById('imageSearch');
     this.imageList = document.getElementById('imageList');
     this.toolbarCard = document.getElementById('toolbarCard');
-    this.comparisonMeta = document.getElementById('comparisonMeta');
     this.comparisonMount = document.getElementById('comparisonMount');
+    this.footerBrand = document.getElementById('footerBrand');
+    this.footerStatus = document.getElementById('footerStatus');
+    this.footerControls = document.getElementById('footerControls');
 
     this.imageSearchInput.addEventListener('input', (event) => {
       this.state.imageSearch = event.target.value;
@@ -442,7 +437,7 @@ class CuteVisualizerApp {
     }
 
     this.applyTheme();
-    this.updateHeader();
+    this.updateFooter();
   }
 
   applyTheme() {
@@ -454,7 +449,7 @@ class CuteVisualizerApp {
 
   updateAll() {
     this.applyTheme();
-    this.updateHeader();
+    this.updateFooter();
     this.updateMethodSelector();
     this.updateSidebar();
     this.updateToolbar();
@@ -592,84 +587,70 @@ class CuteVisualizerApp {
     this.updateToolbarStats();
   }
 
-  updateHeader() {
-    clearElement(this.heroCopy);
-    clearElement(this.heroActions);
+  updateFooter() {
+    clearElement(this.footerBrand);
+    clearElement(this.footerStatus);
+    clearElement(this.footerControls);
 
-    const title = createElement('h1', 'hero-title', 'CuteVisualizer');
-    const description = createElement(
-      'p',
-      'hero-description',
-      'A cute, clean static viewer for comparing image outputs from multiple methods with synchronized zoom and pan.',
-    );
+    const brandName = createElement('span', 'footer-name', 'CuteVisualizer');
+    const brandMode = createElement('span', 'footer-caption', 'static image comparison');
+    this.footerBrand.append(brandName, brandMode);
 
-    const pillRow = createElement('div', 'pill-row');
-    const loadingPill = createElement(
-      'span',
-      `status-pill ${this.state.error ? 'is-error' : this.state.loading ? 'is-loading' : 'is-ready'}`,
-      this.state.error
-        ? this.state.error
-        : this.state.loading
-          ? 'Loading manifest...'
-          : `Manifest ready • ${MANIFEST_PATH}`,
-    );
-    pillRow.appendChild(loadingPill);
-
-    if (this.state.manifest && !this.state.loading && !this.state.error) {
-      pillRow.appendChild(
-        createElement(
-          'span',
-          'status-pill is-soft',
-          `${this.state.manifest.methods.length} methods • ${this.state.manifest.images.length} images`,
-        ),
-      );
-      pillRow.appendChild(
-        createElement(
-          'span',
-          'status-pill is-soft',
-          `Indexed ${formatTimestamp(this.state.manifest.generatedAt)}`,
-        ),
-      );
+    let statusText = `Manifest path: ${MANIFEST_PATH}`;
+    if (this.state.error) {
+      statusText = this.state.error;
+    } else if (this.state.loading) {
+      statusText = 'Loading manifest...';
+    } else if (this.state.manifest) {
+      statusText = `${this.state.manifest.methods.length} methods • ${this.state.manifest.images.length} images • Indexed ${formatTimestamp(this.state.manifest.generatedAt)}`;
     }
 
-    this.heroCopy.append(title, description, pillRow);
+    this.footerStatus.textContent = statusText;
 
-    const themeSection = createElement('div', 'theme-panel');
-    const themeHeader = createElement('div', 'theme-panel-header');
-    themeHeader.append(
-      createElement('p', 'eyebrow', 'Theme'),
-      createElement('h2', 'theme-title', 'Pick your accent color'),
+    const themeLabel = createElement('span', 'footer-label', 'Theme');
+    const presetSelect = createElement('select', 'theme-select');
+    presetSelect.id = 'themePresetSelect';
+
+    const activePreset = THEME_PRESETS.find(
+      (preset) => normalizeThemeColor(preset.color) === this.state.themeColor,
     );
 
-    const presetList = createElement('div', 'theme-preset-list');
     THEME_PRESETS.forEach((preset) => {
-      const button = createElement('button', 'theme-preset');
-      button.type = 'button';
-      button.textContent = preset.label;
-      button.style.setProperty('--preset-color', preset.color);
-      if (normalizeThemeColor(preset.color) === this.state.themeColor) {
-        button.classList.add('is-active');
+      const option = document.createElement('option');
+      option.value = preset.id;
+      option.textContent = preset.label;
+      if (activePreset && activePreset.id === preset.id) {
+        option.selected = true;
       }
-      button.addEventListener('click', () => this.saveThemeColor(preset.color));
-      presetList.appendChild(button);
+      presetSelect.appendChild(option);
     });
 
-    const customRow = createElement('div', 'custom-theme-row');
-    const customLabel = createElement('label', 'custom-theme-label', 'Custom');
-    customLabel.setAttribute('for', 'themePicker');
+    const customOption = document.createElement('option');
+    customOption.value = 'custom';
+    customOption.textContent = 'Custom';
+    if (!activePreset) {
+      customOption.selected = true;
+    }
+    presetSelect.appendChild(customOption);
+
+    presetSelect.addEventListener('change', (event) => {
+      const selectedPreset = THEME_PRESETS.find((preset) => preset.id === event.target.value);
+      if (selectedPreset) {
+        this.saveThemeColor(selectedPreset.color);
+      }
+    });
+
     const colorPicker = createElement('input', 'theme-color-picker');
     colorPicker.id = 'themePicker';
     colorPicker.type = 'color';
     colorPicker.value = this.state.themeColor;
     colorPicker.addEventListener('input', (event) => this.saveThemeColor(event.target.value));
 
-    const reloadButton = createElement('button', 'secondary-button', 'Reload Manifest');
+    const reloadButton = createElement('button', 'footer-button', 'Reload');
     reloadButton.type = 'button';
     reloadButton.addEventListener('click', () => this.reloadManifest());
 
-    customRow.append(customLabel, colorPicker, reloadButton);
-    themeSection.append(themeHeader, presetList, customRow);
-    this.heroActions.appendChild(themeSection);
+    this.footerControls.append(themeLabel, presetSelect, colorPicker, reloadButton);
   }
 
   updateMethodSelector() {
@@ -693,47 +674,37 @@ class CuteVisualizerApp {
     const selectedCount = this.state.selectedMethodIds.length;
     const availableCount = availableMethods.size;
 
-    this.methodSectionMeta.textContent = `${selectedCount}/${MAX_SELECTED_METHODS} selected • ${availableCount} available for this image`;
+    this.methodSectionMeta.textContent = `${selectedCount}/${MAX_SELECTED_METHODS} selected • ${availableCount} for this image`;
 
     manifest.methods.forEach((method) => {
       const isAvailable = availableMethods.has(method.id);
       const isSelected = selectedSet.has(method.id);
       const shouldDisable = !isAvailable || (!isSelected && selectedCount >= MAX_SELECTED_METHODS);
 
-      const label = createElement('label', 'method-option');
+      const button = createElement('button', 'method-option');
+      button.type = 'button';
+      button.disabled = shouldDisable;
+      button.setAttribute('aria-pressed', String(isSelected));
       if (isSelected) {
-        label.classList.add('is-selected');
+        button.classList.add('is-selected');
       }
       if (!isAvailable) {
-        label.classList.add('is-disabled');
+        button.classList.add('is-unavailable');
+      }
+      if (shouldDisable && isAvailable && !isSelected) {
+        button.classList.add('is-limit-blocked');
       }
 
-      const checkbox = createElement('input', 'method-checkbox');
-      checkbox.type = 'checkbox';
-      checkbox.checked = isSelected;
-      checkbox.disabled = shouldDisable;
-      checkbox.addEventListener('change', () => this.toggleMethod(method.id));
-
-      const content = createElement('div', 'method-option-body');
-      const titleRow = createElement('div', 'method-option-title-row');
-      titleRow.append(
-        createElement('span', 'method-option-title', method.label),
-        createElement(
-          'span',
-          `availability-badge ${isAvailable ? 'is-available' : 'is-missing'}`,
-          isAvailable ? 'available' : 'missing',
-        ),
-      );
-
+      const title = createElement('span', 'method-option-title', method.label);
       const subtitle = createElement(
         'span',
         'method-option-subtitle',
-        `${method.imageCount} indexed images`,
+        isAvailable ? `${method.imageCount} indexed images` : 'No image for current selection',
       );
 
-      content.append(titleRow, subtitle);
-      label.append(checkbox, content);
-      this.methodsList.appendChild(label);
+      button.append(title, subtitle);
+      button.addEventListener('click', () => this.toggleMethod(method.id));
+      this.methodsList.appendChild(button);
     });
   }
 
@@ -791,8 +762,9 @@ class CuteVisualizerApp {
     const currentImage = this.getCurrentImage();
     const navList = this.getImageNavigationList();
     const currentIndex = navList.findIndex((image) => image.id === this.state.selectedImageId);
+    const currentImageCount = currentImage ? currentImage.availableIn.length : 0;
 
-    const leftCluster = createElement('div', 'toolbar-cluster');
+    const leftCluster = createElement('div', 'toolbar-main');
     const title = createElement(
       'div',
       'toolbar-title',
@@ -801,7 +773,9 @@ class CuteVisualizerApp {
     const subtitle = createElement(
       'div',
       'toolbar-subtitle',
-      currentImage ? currentImage.key : 'Add data to begin comparing images.',
+      currentImage
+        ? `${currentImage.key} • ${currentImageCount} methods available`
+        : 'Add data to begin comparing images.',
     );
     leftCluster.append(title, subtitle);
 
@@ -828,15 +802,8 @@ class CuteVisualizerApp {
     this.toolbarImageStat = createElement('span', 'toolbar-stat');
     infoCluster.append(this.toolbarZoomStat, this.toolbarPanelStat, this.toolbarImageStat);
 
-    this.toolbarCard.append(leftCluster, actionCluster, infoCluster);
+    this.toolbarCard.append(leftCluster, infoCluster, actionCluster);
     this.updateToolbarStats();
-
-    if (this.state.manifest) {
-      const currentImageCount = currentImage ? currentImage.availableIn.length : 0;
-      this.comparisonMeta.textContent = `${currentImageCount} method${currentImageCount === 1 ? '' : 's'} available on this image`;
-    } else {
-      this.comparisonMeta.textContent = '';
-    }
   }
 
   updateToolbarStats() {
