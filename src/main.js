@@ -15,8 +15,14 @@ import {
 } from './lib/viewport.js';
 
 const THEME_STORAGE_KEY = 'cute-visualizer:theme-color';
+const SIDEBAR_WIDTH_STORAGE_KEY = 'cute-visualizer:sidebar-width';
 const MAX_SELECTED_METHODS = 9;
 const DEFAULT_SELECTION_COUNT = 4;
+const DEFAULT_SIDEBAR_WIDTH = 272;
+const MIN_SIDEBAR_WIDTH = 180;
+const MAX_SIDEBAR_WIDTH = 420;
+const MIN_VIEWER_WIDTH = 320;
+const SIDEBAR_KEYBOARD_STEP = 16;
 
 function createElement(tagName, className, textContent) {
   const element = document.createElement(tagName);
@@ -342,6 +348,10 @@ class CuteVisualizerApp {
   constructor(root) {
     this.root = root;
     this.gridView = null;
+    this.sidebarWidth = this.loadSidebarWidth();
+    this.isResizingSidebar = false;
+    this.themePresetSelect = null;
+    this.themeColorInput = null;
     this.state = {
       manifest: null,
       loading: true,
@@ -352,6 +362,12 @@ class CuteVisualizerApp {
       viewport: { ...DEFAULT_VIEWPORT },
       themeColor: this.loadThemeColor(),
     };
+
+    this.handleSidebarResizeStart = this.handleSidebarResizeStart.bind(this);
+    this.handleSidebarResizeMove = this.handleSidebarResizeMove.bind(this);
+    this.handleSidebarResizeEnd = this.handleSidebarResizeEnd.bind(this);
+    this.handleSidebarResizeKeydown = this.handleSidebarResizeKeydown.bind(this);
+    this.handleWindowResize = this.handleWindowResize.bind(this);
 
     this.renderShell();
     this.applyTheme();
@@ -365,7 +381,7 @@ class CuteVisualizerApp {
           <div class="strip-header">
             <div class="section-title-group">
               <div class="section-label">Methods</div>
-              <div class="section-title">Select up to nine outputs</div>
+              <div class="section-title">Select the methods to visualize. </div>
             </div>
             <div class="section-meta" id="methodSectionMeta"></div>
           </div>
@@ -393,6 +409,15 @@ class CuteVisualizerApp {
             <div class="image-list" id="imageList"></div>
           </aside>
 
+          <div
+            class="sidebar-resizer"
+            id="sidebarResizer"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize image list"
+            tabindex="0"
+          ></div>
+
           <main class="visualizer-area">
             <section class="toolbar-bar" id="toolbarCard"></section>
             <section class="comparison-area">
@@ -411,6 +436,9 @@ class CuteVisualizerApp {
 
     this.methodsList = document.getElementById('methodsList');
     this.methodSectionMeta = document.getElementById('methodSectionMeta');
+    this.workspace = this.root.querySelector('.workspace');
+    this.imageSidebar = this.root.querySelector('.image-sidebar');
+    this.sidebarResizer = document.getElementById('sidebarResizer');
     this.imageSectionMeta = document.getElementById('imageSectionMeta');
     this.imageSearchInput = document.getElementById('imageSearch');
     this.imageList = document.getElementById('imageList');
@@ -425,6 +453,16 @@ class CuteVisualizerApp {
       this.updateSidebar();
       this.updateToolbar();
     });
+
+    this.sidebarResizer.addEventListener('mousedown', this.handleSidebarResizeStart);
+    this.sidebarResizer.addEventListener('keydown', this.handleSidebarResizeKeydown);
+    window.addEventListener('resize', this.handleWindowResize);
+
+    if (this.sidebarWidth !== null) {
+      this.applySidebarWidth(this.sidebarWidth);
+    } else {
+      this.updateSidebarResizeAria(this.getCurrentSidebarWidth());
+    }
   }
 
   async reloadManifest() {
@@ -478,7 +516,143 @@ class CuteVisualizerApp {
     }
 
     this.applyTheme();
-    this.updateFooter();
+    this.syncThemeControls();
+  }
+
+  syncThemeControls() {
+    const activePreset = THEME_PRESETS.find(
+      (preset) => normalizeThemeColor(preset.color) === this.state.themeColor,
+    );
+
+    if (this.themePresetSelect) {
+      this.themePresetSelect.value = activePreset ? activePreset.id : 'custom';
+    }
+
+    if (this.themeColorInput) {
+      this.themeColorInput.value = this.state.themeColor;
+    }
+  }
+
+  loadSidebarWidth() {
+    try {
+      const stored = window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+      if (stored === null) {
+        return null;
+      }
+
+      const parsed = Number.parseInt(stored, 10);
+      return Number.isFinite(parsed) ? parsed : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  getCurrentSidebarWidth() {
+    if (this.imageSidebar) {
+      return Math.round(this.imageSidebar.getBoundingClientRect().width);
+    }
+
+    return DEFAULT_SIDEBAR_WIDTH;
+  }
+
+  getSidebarWidthBounds() {
+    const workspaceWidth = this.workspace
+      ? Math.round(this.workspace.getBoundingClientRect().width)
+      : DEFAULT_SIDEBAR_WIDTH + MIN_VIEWER_WIDTH;
+    const handleWidth = this.sidebarResizer
+      ? Math.round(this.sidebarResizer.getBoundingClientRect().width)
+      : 0;
+
+    const maxWidth = Math.min(
+      MAX_SIDEBAR_WIDTH,
+      Math.max(MIN_SIDEBAR_WIDTH, workspaceWidth - handleWidth - MIN_VIEWER_WIDTH),
+    );
+
+    return {
+      min: Math.min(MIN_SIDEBAR_WIDTH, maxWidth),
+      max: maxWidth,
+    };
+  }
+
+  updateSidebarResizeAria(width) {
+    if (!this.sidebarResizer) {
+      return;
+    }
+
+    const bounds = this.getSidebarWidthBounds();
+    this.sidebarResizer.setAttribute('aria-valuemin', String(bounds.min));
+    this.sidebarResizer.setAttribute('aria-valuemax', String(bounds.max));
+    this.sidebarResizer.setAttribute('aria-valuenow', String(clamp(width, bounds.min, bounds.max)));
+  }
+
+  applySidebarWidth(width, persist = false) {
+    const bounds = this.getSidebarWidthBounds();
+    const normalized = clamp(Math.round(width), bounds.min, bounds.max);
+    this.sidebarWidth = normalized;
+    this.root.style.setProperty('--sidebar-width', `${normalized}px`);
+    this.updateSidebarResizeAria(normalized);
+
+    if (persist) {
+      try {
+        window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(normalized));
+      } catch (_error) {
+        // Ignore storage failures in restrictive browser environments.
+      }
+    }
+  }
+
+  handleSidebarResizeStart(event) {
+    event.preventDefault();
+    this.isResizingSidebar = true;
+    this.root.classList.add('is-resizing-sidebar');
+    window.addEventListener('mousemove', this.handleSidebarResizeMove);
+    window.addEventListener('mouseup', this.handleSidebarResizeEnd);
+  }
+
+  handleSidebarResizeMove(event) {
+    if (!this.isResizingSidebar || !this.workspace || !this.sidebarResizer) {
+      return;
+    }
+
+    const workspaceBounds = this.workspace.getBoundingClientRect();
+    const handleWidth = this.sidebarResizer.getBoundingClientRect().width;
+    const nextWidth = event.clientX - workspaceBounds.left - handleWidth / 2;
+    this.applySidebarWidth(nextWidth);
+  }
+
+  handleSidebarResizeEnd() {
+    if (!this.isResizingSidebar) {
+      return;
+    }
+
+    this.isResizingSidebar = false;
+    this.root.classList.remove('is-resizing-sidebar');
+    window.removeEventListener('mousemove', this.handleSidebarResizeMove);
+    window.removeEventListener('mouseup', this.handleSidebarResizeEnd);
+
+    if (this.sidebarWidth !== null) {
+      this.applySidebarWidth(this.sidebarWidth, true);
+    }
+  }
+
+  handleSidebarResizeKeydown(event) {
+    const step = event.shiftKey ? SIDEBAR_KEYBOARD_STEP * 2 : SIDEBAR_KEYBOARD_STEP;
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
+      return;
+    }
+
+    event.preventDefault();
+    const currentWidth = this.sidebarWidth ?? this.getCurrentSidebarWidth();
+    const delta = event.key === 'ArrowLeft' ? -step : step;
+    this.applySidebarWidth(currentWidth + delta, true);
+  }
+
+  handleWindowResize() {
+    if (this.sidebarWidth !== null) {
+      this.applySidebarWidth(this.sidebarWidth);
+    } else {
+      this.updateSidebarResizeAria(this.getCurrentSidebarWidth());
+    }
   }
 
   applyTheme() {
@@ -652,32 +826,25 @@ class CuteVisualizerApp {
     const presetSelect = createElement('select', 'theme-select');
     presetSelect.id = 'themePresetSelect';
 
-    const activePreset = THEME_PRESETS.find(
-      (preset) => normalizeThemeColor(preset.color) === this.state.themeColor,
-    );
-
     THEME_PRESETS.forEach((preset) => {
       const option = document.createElement('option');
       option.value = preset.id;
       option.textContent = preset.label;
-      if (activePreset && activePreset.id === preset.id) {
-        option.selected = true;
-      }
       presetSelect.appendChild(option);
     });
 
     const customOption = document.createElement('option');
     customOption.value = 'custom';
     customOption.textContent = 'Custom';
-    if (!activePreset) {
-      customOption.selected = true;
-    }
     presetSelect.appendChild(customOption);
 
     presetSelect.addEventListener('change', (event) => {
       const selectedPreset = THEME_PRESETS.find((preset) => preset.id === event.target.value);
       if (selectedPreset) {
         this.saveThemeColor(selectedPreset.color);
+      } else if (this.themeColorInput) {
+        this.themeColorInput.focus();
+        this.themeColorInput.click();
       }
     });
 
@@ -686,12 +853,16 @@ class CuteVisualizerApp {
     colorPicker.type = 'color';
     colorPicker.value = this.state.themeColor;
     colorPicker.addEventListener('input', (event) => this.saveThemeColor(event.target.value));
+    colorPicker.addEventListener('change', (event) => this.saveThemeColor(event.target.value));
 
     const reloadButton = createElement('button', 'footer-button', 'Reload');
     reloadButton.type = 'button';
     reloadButton.addEventListener('click', () => this.reloadManifest());
 
     this.footerControls.append(themeLabel, presetSelect, colorPicker, reloadButton);
+    this.themePresetSelect = presetSelect;
+    this.themeColorInput = colorPicker;
+    this.syncThemeControls();
   }
 
   updateMethodSelector() {
