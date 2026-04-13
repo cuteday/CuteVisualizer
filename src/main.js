@@ -72,11 +72,14 @@ class ComparisonPanel {
     this.naturalSize = null;
     this.isDragging = false;
     this.lastPointer = { x: 0, y: 0 };
+    this.hoverPoint = null;
 
     this.handleWheel = this.handleWheel.bind(this);
     this.handleMouseDown = this.handleMouseDown.bind(this);
     this.handleMouseMove = this.handleMouseMove.bind(this);
     this.handleMouseUp = this.handleMouseUp.bind(this);
+    this.handleStageMouseMove = this.handleStageMouseMove.bind(this);
+    this.handleStageMouseLeave = this.handleStageMouseLeave.bind(this);
     this.handleImageLoad = this.handleImageLoad.bind(this);
     this.handleImageError = this.handleImageError.bind(this);
     this.handleResize = this.handleResize.bind(this);
@@ -98,14 +101,17 @@ class ComparisonPanel {
 
     this.overlay = createElement('div', 'panel-overlay');
     this.overlay.textContent = 'Scroll to zoom. Drag with left mouse button to pan.';
+    this.coordinateTip = createElement('div', 'panel-coordinate-tip');
 
-    this.stage.append(this.canvas, this.overlay);
+    this.stage.append(this.canvas, this.overlay, this.coordinateTip);
     this.element.append(this.header, this.stage);
 
     this.image.addEventListener('load', this.handleImageLoad);
     this.image.addEventListener('error', this.handleImageError);
     this.stage.addEventListener('wheel', this.handleWheel, { passive: false });
     this.stage.addEventListener('mousedown', this.handleMouseDown);
+    this.stage.addEventListener('mousemove', this.handleStageMouseMove);
+    this.stage.addEventListener('mouseleave', this.handleStageMouseLeave);
     window.addEventListener('mousemove', this.handleMouseMove);
     window.addEventListener('mouseup', this.handleMouseUp);
     this.image.src = imagePath;
@@ -125,6 +131,8 @@ class ComparisonPanel {
   destroy() {
     this.stage.removeEventListener('wheel', this.handleWheel);
     this.stage.removeEventListener('mousedown', this.handleMouseDown);
+    this.stage.removeEventListener('mousemove', this.handleStageMouseMove);
+    this.stage.removeEventListener('mouseleave', this.handleStageMouseLeave);
     this.image.removeEventListener('load', this.handleImageLoad);
     this.image.removeEventListener('error', this.handleImageError);
     window.removeEventListener('mousemove', this.handleMouseMove);
@@ -158,10 +166,33 @@ class ComparisonPanel {
     this.element.classList.add('is-error');
     this.metaTag.textContent = 'Image unavailable';
     this.overlay.textContent = 'This image could not be loaded.';
+    this.hideCoordinateTip();
   }
 
   handleResize() {
     this.refreshLayout();
+  }
+
+  handleStageMouseMove(event) {
+    if (!this.naturalSize) {
+      return;
+    }
+
+    const bounds = this.stage.getBoundingClientRect();
+    this.hoverPoint = {
+      x: event.clientX - bounds.left,
+      y: event.clientY - bounds.top,
+    };
+    this.updateCoordinateTip();
+  }
+
+  handleStageMouseLeave() {
+    if (this.isDragging) {
+      return;
+    }
+
+    this.hoverPoint = null;
+    this.hideCoordinateTip();
   }
 
   handleWheel(event) {
@@ -206,6 +237,11 @@ class ComparisonPanel {
       x: event.clientX,
       y: event.clientY,
     };
+    const bounds = this.stage.getBoundingClientRect();
+    this.hoverPoint = {
+      x: event.clientX - bounds.left,
+      y: event.clientY - bounds.top,
+    };
 
     this.onViewportChange((previous) =>
       panViewport(previous, this.getStageSize(), this.naturalSize, deltaX, deltaY),
@@ -235,6 +271,7 @@ class ComparisonPanel {
     }
 
     this.drawCanvas();
+    this.updateCoordinateTip();
   }
 
   updateCursor() {
@@ -288,6 +325,44 @@ class ComparisonPanel {
     );
 
     this.element.classList.toggle('is-zoomed', isZoomed);
+  }
+
+  hideCoordinateTip() {
+    this.coordinateTip.classList.remove('is-visible');
+  }
+
+  updateCoordinateTip() {
+    if (!this.naturalSize || !this.hoverPoint) {
+      this.hideCoordinateTip();
+      return;
+    }
+
+    const stageSize = this.getStageSize();
+    const imageRect = getImageRect(this.viewport, stageSize, this.naturalSize);
+    const insideImage =
+      this.hoverPoint.x >= imageRect.left &&
+      this.hoverPoint.x < imageRect.left + imageRect.width &&
+      this.hoverPoint.y >= imageRect.top &&
+      this.hoverPoint.y < imageRect.top + imageRect.height;
+
+    if (!insideImage || imageRect.width <= 0 || imageRect.height <= 0) {
+      this.hideCoordinateTip();
+      return;
+    }
+
+    const pixelX = clamp(
+      Math.floor(((this.hoverPoint.x - imageRect.left) / imageRect.width) * this.naturalSize.width),
+      0,
+      this.naturalSize.width - 1,
+    );
+    const pixelY = clamp(
+      Math.floor(((this.hoverPoint.y - imageRect.top) / imageRect.height) * this.naturalSize.height),
+      0,
+      this.naturalSize.height - 1,
+    );
+
+    this.coordinateTip.textContent = `${pixelX},${pixelY}`;
+    this.coordinateTip.classList.add('is-visible');
   }
 }
 
@@ -807,7 +882,7 @@ class CuteVisualizerApp {
     clearElement(this.footerStatus);
     clearElement(this.footerControls);
 
-    const brandName = createElement('span', 'footer-name', 'CuteVisualizer');
+    const brandName = createElement('span', 'footer-name', 'Image Visualizer');
     const brandMode = createElement('span', 'footer-caption', 'static image comparison');
     this.footerBrand.append(brandName, brandMode);
 

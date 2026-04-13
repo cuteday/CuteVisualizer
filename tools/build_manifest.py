@@ -12,6 +12,7 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import os
 import pathlib
 import re
 import sys
@@ -60,8 +61,13 @@ def make_image_id(image_key: str) -> str:
     return f"{slugify(pathlib.PurePosixPath(image_key).stem)}-{digest}"
 
 
+def lexical_abspath(path: pathlib.Path) -> pathlib.Path:
+    """Return an absolute path without dereferencing symlinks."""
+    return pathlib.Path(os.path.abspath(os.fspath(path)))
+
+
 def relative_to_root(path: pathlib.Path, root: pathlib.Path) -> str:
-    return path.resolve().relative_to(root.resolve()).as_posix()
+    return lexical_abspath(path).relative_to(lexical_abspath(root)).as_posix()
 
 
 def is_hidden(path: pathlib.Path, root: pathlib.Path) -> bool:
@@ -86,9 +92,9 @@ def build_manifest(
     match_mode: str,
     extensions: Iterable[str],
 ) -> Dict[str, object]:
-    methods_dir = methods_dir.resolve()
-    output_path = output_path.resolve()
-    web_root = web_root.resolve()
+    methods_dir = lexical_abspath(methods_dir)
+    output_path = lexical_abspath(output_path)
+    web_root = lexical_abspath(web_root)
 
     methods_dir.mkdir(parents=True, exist_ok=True)
     output_path.parent.mkdir(parents=True, exist_ok=True)

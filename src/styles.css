@@ -600,6 +600,26 @@ code {
   transition: opacity 120ms ease;
 }
 
+.panel-coordinate-tip {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  padding: 0.32rem 0.45rem;
+  border-radius: 0.45rem;
+  background: rgba(47, 41, 65, 0.74);
+  color: rgba(255, 255, 255, 0.94);
+  font-size: 0.66rem;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.panel-coordinate-tip.is-visible {
+  opacity: 1;
+}
+
 .comparison-panel.is-dragging .panel-overlay,
 .comparison-panel:hover .panel-overlay {
   opacity: 1;
