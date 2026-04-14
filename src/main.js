@@ -23,6 +23,10 @@ const MIN_SIDEBAR_WIDTH = 180;
 const MAX_SIDEBAR_WIDTH = 420;
 const MIN_VIEWER_WIDTH = 320;
 const SIDEBAR_KEYBOARD_STEP = 16;
+const COMPARISON_MODES = {
+  GRIDS: 'grids',
+  SWITCH: 'switch',
+};
 
 function createElement(tagName, className, textContent) {
   const element = document.createElement(tagName);
@@ -63,7 +67,7 @@ function clamp(value, min, max) {
 }
 
 class ComparisonPanel {
-  constructor({ method, imagePath, imageLabel, viewport, onViewportChange }) {
+  constructor({ method, imagePath, imageLabel, viewport, onViewportChange, showSwitchHint = false }) {
     this.method = method;
     this.imagePath = imagePath;
     this.imageLabel = imageLabel;
@@ -73,6 +77,8 @@ class ComparisonPanel {
     this.isDragging = false;
     this.lastPointer = { x: 0, y: 0 };
     this.hoverPoint = null;
+    this.image = null;
+    this.imageLoadToken = 0;
 
     this.handleWheel = this.handleWheel.bind(this);
     this.handleMouseDown = this.handleMouseDown.bind(this);
@@ -80,24 +86,26 @@ class ComparisonPanel {
     this.handleMouseUp = this.handleMouseUp.bind(this);
     this.handleStageMouseMove = this.handleStageMouseMove.bind(this);
     this.handleStageMouseLeave = this.handleStageMouseLeave.bind(this);
-    this.handleImageLoad = this.handleImageLoad.bind(this);
-    this.handleImageError = this.handleImageError.bind(this);
     this.handleResize = this.handleResize.bind(this);
 
     this.element = createElement('article', 'comparison-panel');
     this.header = createElement('div', 'panel-header');
     this.methodTag = createElement('span', 'method-tag', method.label);
+    this.metaCluster = createElement('div', 'panel-meta-cluster');
     this.metaTag = createElement('span', 'panel-meta-tag', 'Loading...');
-    this.header.append(this.methodTag, this.metaTag);
+    this.switchHintTag = createElement('span', 'panel-shortcut-tag', 'Switch: space');
+    this.switchHintTag.title = 'Press Space to cycle to the next selected model';
+    if (!showSwitchHint) {
+      this.switchHintTag.classList.add('is-hidden');
+    }
+    this.metaCluster.append(this.metaTag, this.switchHintTag);
+    this.header.append(this.methodTag, this.metaCluster);
 
     this.stage = createElement('div', 'panel-stage');
     this.canvas = createElement('canvas', 'panel-canvas');
     this.canvas.setAttribute('role', 'img');
     this.canvas.setAttribute('aria-label', `${method.label}: ${imageLabel}`);
     this.canvasContext = this.canvas.getContext('2d');
-    this.image = new Image();
-    this.image.draggable = false;
-    this.image.decoding = 'async';
 
     this.overlay = createElement('div', 'panel-overlay');
     this.overlay.textContent = 'Scroll to zoom. Drag with left mouse button to pan.';
@@ -106,15 +114,12 @@ class ComparisonPanel {
     this.stage.append(this.canvas, this.overlay, this.coordinateTip);
     this.element.append(this.header, this.stage);
 
-    this.image.addEventListener('load', this.handleImageLoad);
-    this.image.addEventListener('error', this.handleImageError);
     this.stage.addEventListener('wheel', this.handleWheel, { passive: false });
     this.stage.addEventListener('mousedown', this.handleMouseDown);
     this.stage.addEventListener('mousemove', this.handleStageMouseMove);
     this.stage.addEventListener('mouseleave', this.handleStageMouseLeave);
     window.addEventListener('mousemove', this.handleMouseMove);
     window.addEventListener('mouseup', this.handleMouseUp);
-    this.image.src = imagePath;
 
     if (window.ResizeObserver) {
       this.resizeObserver = new ResizeObserver(this.handleResize);
@@ -122,10 +127,33 @@ class ComparisonPanel {
     } else {
       window.addEventListener('resize', this.handleResize);
     }
+
+    this.updateSource({ method, imagePath, imageLabel, showSwitchHint });
   }
 
   mount(parent) {
     parent.appendChild(this.element);
+  }
+
+  updateSource({ method, imagePath, imageLabel, showSwitchHint = false }) {
+    const sourceChanged = imagePath !== this.imagePath;
+
+    this.method = method;
+    this.imagePath = imagePath;
+    this.imageLabel = imageLabel;
+    this.methodTag.textContent = method.label;
+    this.canvas.setAttribute('aria-label', `${method.label}: ${imageLabel}`);
+    this.switchHintTag.classList.toggle('is-hidden', !showSwitchHint);
+    this.element.classList.remove('is-error');
+
+    if (sourceChanged) {
+      this.metaTag.textContent = 'Loading...';
+      this.hoverPoint = null;
+      this.hideCoordinateTip();
+      this.image.src = imagePath;
+    } else {
+      this.refreshLayout();
+    }
   }
 
   destroy() {
@@ -133,8 +161,6 @@ class ComparisonPanel {
     this.stage.removeEventListener('mousedown', this.handleMouseDown);
     this.stage.removeEventListener('mousemove', this.handleStageMouseMove);
     this.stage.removeEventListener('mouseleave', this.handleStageMouseLeave);
-    this.image.removeEventListener('load', this.handleImageLoad);
-    this.image.removeEventListener('error', this.handleImageError);
     window.removeEventListener('mousemove', this.handleMouseMove);
     window.removeEventListener('mouseup', this.handleMouseUp);
 
@@ -151,10 +177,13 @@ class ComparisonPanel {
     this.updateCursor();
   }
 
-  handleImageLoad(event) {
+  applyLoadedImage(image, imagePath, imageLabel) {
+    this.image = image;
+    this.imagePath = imagePath;
+    this.imageLabel = imageLabel;
     this.naturalSize = {
-      width: event.currentTarget.naturalWidth,
-      height: event.currentTarget.naturalHeight,
+      width: image.naturalWidth,
+      height: image.naturalHeight,
     };
     this.metaTag.textContent = `${this.naturalSize.width} x ${this.naturalSize.height}`;
     this.element.classList.remove('is-error');
@@ -167,6 +196,45 @@ class ComparisonPanel {
     this.metaTag.textContent = 'Image unavailable';
     this.overlay.textContent = 'This image could not be loaded.';
     this.hideCoordinateTip();
+  }
+
+  loadImageSource(imagePath, imageLabel) {
+    const loadToken = ++this.imageLoadToken;
+    const nextImage = new Image();
+    nextImage.draggable = false;
+    nextImage.decoding = 'async';
+    nextImage.addEventListener('load', () => {
+      if (loadToken !== this.imageLoadToken) {
+        return;
+      }
+      this.applyLoadedImage(nextImage, imagePath, imageLabel);
+    });
+    nextImage.addEventListener('error', () => {
+      if (loadToken !== this.imageLoadToken) {
+        return;
+      }
+      this.handleImageError();
+    });
+    nextImage.src = imagePath;
+  }
+
+  updateSource({ method, imagePath, imageLabel, showSwitchHint = false }) {
+    const sourceChanged = imagePath !== this.imagePath;
+
+    this.method = method;
+    this.imageLabel = imageLabel;
+    this.methodTag.textContent = method.label;
+    this.canvas.setAttribute('aria-label', `${method.label}: ${imageLabel}`);
+    this.switchHintTag.classList.toggle('is-hidden', !showSwitchHint);
+    this.element.classList.remove('is-error');
+
+    if (!sourceChanged && this.image) {
+      this.refreshLayout();
+      return;
+    }
+
+    this.metaTag.textContent = 'Loading...';
+    this.loadImageSource(imagePath, imageLabel);
   }
 
   handleResize() {
@@ -289,6 +357,10 @@ class ComparisonPanel {
   }
 
   drawCanvas() {
+    if (!this.image) {
+      return;
+    }
+
     const stageSize = this.getStageSize();
     const devicePixelRatio = window.devicePixelRatio || 1;
     const targetWidth = Math.max(Math.round(stageSize.width * devicePixelRatio), 1);
@@ -371,13 +443,14 @@ class ComparisonGridView {
     this.container = container;
     this.options = options;
     this.panels = [];
+    this.gridElement = null;
   }
 
   render() {
     this.destroy();
     clearElement(this.container);
 
-    const { methods, image } = this.options;
+    const { methods, image, showSwitchHint = false } = this.options;
     if (!methods.length) {
       const emptyState = createElement('div', 'comparison-empty');
       emptyState.innerHTML = `
@@ -390,6 +463,7 @@ class ComparisonGridView {
 
     const layout = getGridLayout(methods.length);
     const grid = createElement('div', 'comparison-grid');
+    this.gridElement = grid;
     grid.style.setProperty('--grid-columns', String(layout.columns));
     grid.style.setProperty('--grid-rows', String(layout.rows));
     this.container.appendChild(grid);
@@ -402,6 +476,7 @@ class ComparisonGridView {
         imageLabel: image.label,
         viewport: this.options.viewport,
         onViewportChange: this.options.onViewportChange,
+        showSwitchHint,
       });
       panel.mount(grid);
       this.panels.push(panel);
@@ -413,9 +488,32 @@ class ComparisonGridView {
     this.panels.forEach((panel) => panel.setViewport(viewport));
   }
 
+  canReuseSinglePanel(options) {
+    return Boolean(this.gridElement) && this.panels.length === 1 && options.methods.length === 1;
+  }
+
+  updateSinglePanel(options) {
+    this.options = options;
+    if (!this.canReuseSinglePanel(options)) {
+      this.render();
+      return;
+    }
+
+    const [method] = options.methods;
+    const panel = this.panels[0];
+    panel.updateSource({
+      method,
+      imagePath: options.image.paths[method.id],
+      imageLabel: options.image.label,
+      showSwitchHint: options.showSwitchHint,
+    });
+    panel.setViewport(options.viewport);
+  }
+
   destroy() {
     this.panels.forEach((panel) => panel.destroy());
     this.panels = [];
+    this.gridElement = null;
   }
 }
 
@@ -433,6 +531,8 @@ class CuteVisualizerApp {
       error: '',
       selectedImageId: null,
       selectedMethodIds: [],
+      comparisonMode: COMPARISON_MODES.GRIDS,
+      activeSwitchIndex: 0,
       imageSearch: '',
       viewport: { ...DEFAULT_VIEWPORT },
       themeColor: this.loadThemeColor(),
@@ -443,9 +543,11 @@ class CuteVisualizerApp {
     this.handleSidebarResizeEnd = this.handleSidebarResizeEnd.bind(this);
     this.handleSidebarResizeKeydown = this.handleSidebarResizeKeydown.bind(this);
     this.handleWindowResize = this.handleWindowResize.bind(this);
+    this.handleGlobalKeydown = this.handleGlobalKeydown.bind(this);
 
     this.renderShell();
     this.applyTheme();
+    document.addEventListener('keydown', this.handleGlobalKeydown);
     this.reloadManifest();
   }
 
@@ -458,7 +560,10 @@ class CuteVisualizerApp {
               <div class="section-label">Methods</div>
               <div class="section-title">Select the methods to visualize. </div>
             </div>
-            <div class="section-meta" id="methodSectionMeta"></div>
+            <div class="strip-header-side">
+              <div class="section-meta" id="methodSectionMeta"></div>
+              <div class="mode-toggle-mount" id="modeToggleMount"></div>
+            </div>
           </div>
           <div class="methods-list" id="methodsList"></div>
         </section>
@@ -511,6 +616,7 @@ class CuteVisualizerApp {
 
     this.methodsList = document.getElementById('methodsList');
     this.methodSectionMeta = document.getElementById('methodSectionMeta');
+    this.modeToggleMount = document.getElementById('modeToggleMount');
     this.workspace = this.root.querySelector('.workspace');
     this.imageSidebar = this.root.querySelector('.image-sidebar');
     this.sidebarResizer = document.getElementById('sidebarResizer');
@@ -740,6 +846,7 @@ class CuteVisualizerApp {
   updateAll() {
     this.applyTheme();
     this.updateFooter();
+    this.updateModeToggle();
     this.updateMethodSelector();
     this.updateSidebar();
     this.updateToolbar();
@@ -768,6 +875,37 @@ class CuteVisualizerApp {
 
     const selectedSet = new Set(this.state.selectedMethodIds);
     return this.state.manifest.methods.filter((method) => selectedSet.has(method.id));
+  }
+
+  getAvailableSelectedMethods() {
+    const currentImage = this.getCurrentImage();
+    if (!this.state.manifest || !currentImage) {
+      return [];
+    }
+
+    const selectedSet = new Set(this.state.selectedMethodIds);
+    return this.state.manifest.methods.filter(
+      (method) => selectedSet.has(method.id) && currentImage.availableIn.includes(method.id),
+    );
+  }
+
+  normalizeSwitchState({ resetIndex = false } = {}) {
+    const availableMethods = this.getAvailableSelectedMethods();
+    if (!availableMethods.length) {
+      this.state.activeSwitchIndex = 0;
+      return;
+    }
+
+    if (resetIndex) {
+      this.state.activeSwitchIndex = 0;
+      return;
+    }
+
+    this.state.activeSwitchIndex = clamp(
+      this.state.activeSwitchIndex,
+      0,
+      availableMethods.length - 1,
+    );
   }
 
   getFilteredImages() {
@@ -818,6 +956,8 @@ class CuteVisualizerApp {
     if (resetViewport) {
       this.state.viewport = { ...DEFAULT_VIEWPORT };
     }
+
+    this.normalizeSwitchState({ resetIndex: resetViewport });
   }
 
   setCurrentImage(imageId) {
@@ -861,9 +1001,99 @@ class CuteVisualizerApp {
       this.state.selectedMethodIds = [...this.state.selectedMethodIds, methodId];
     }
 
+    this.normalizeSwitchState({ resetIndex: this.state.comparisonMode === COMPARISON_MODES.SWITCH });
     this.updateMethodSelector();
     this.updateToolbar();
     this.renderGrid();
+  }
+
+  setComparisonMode(mode) {
+    if (!Object.values(COMPARISON_MODES).includes(mode) || this.state.comparisonMode === mode) {
+      return;
+    }
+
+    this.state.comparisonMode = mode;
+    this.normalizeSwitchState();
+    this.updateModeToggle();
+    this.updateToolbar();
+    this.renderGrid();
+  }
+
+  updateModeToggle() {
+    if (!this.modeToggleMount) {
+      return;
+    }
+
+    clearElement(this.modeToggleMount);
+
+    const modeCluster = createElement('div', 'toolbar-mode-toggle');
+    [
+      { id: COMPARISON_MODES.GRIDS, label: 'Grids' },
+      { id: COMPARISON_MODES.SWITCH, label: 'Switch' },
+    ].forEach((mode) => {
+      const modeButton = createElement('button', 'toolbar-mode-button', mode.label);
+      modeButton.type = 'button';
+      modeButton.setAttribute('aria-pressed', String(this.state.comparisonMode === mode.id));
+      modeButton.title =
+        mode.id === COMPARISON_MODES.GRIDS
+          ? 'Show all selected methods in a comparison grid'
+          : 'Show one selected method at a time and cycle with Space';
+      if (this.state.comparisonMode === mode.id) {
+        modeButton.classList.add('is-active');
+      }
+      modeButton.addEventListener('click', () => this.setComparisonMode(mode.id));
+      modeCluster.appendChild(modeButton);
+    });
+
+    this.modeToggleMount.appendChild(modeCluster);
+  }
+
+  cycleSwitchMethod(step = 1) {
+    const availableMethods = this.getAvailableSelectedMethods();
+    if (
+      this.state.comparisonMode !== COMPARISON_MODES.SWITCH ||
+      availableMethods.length < 2
+    ) {
+      return;
+    }
+
+    const count = availableMethods.length;
+    this.state.activeSwitchIndex = (this.state.activeSwitchIndex + step + count) % count;
+    this.updateToolbarStats();
+    this.renderGrid();
+  }
+
+  handleGlobalKeydown(event) {
+    if (
+      event.defaultPrevented ||
+      event.code !== 'Space' ||
+      event.repeat ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      this.state.comparisonMode !== COMPARISON_MODES.SWITCH
+    ) {
+      return;
+    }
+
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement) {
+      if (
+        activeElement === this.sidebarResizer ||
+        activeElement.isContentEditable ||
+        activeElement.matches('input, textarea, select, button, option')
+      ) {
+        return;
+      }
+    }
+
+    if (this.getAvailableSelectedMethods().length < 2) {
+      return;
+    }
+
+    event.preventDefault();
+    this.cycleSwitchMethod(1);
   }
 
   setViewport(nextViewport) {
@@ -1128,22 +1358,24 @@ class CuteVisualizerApp {
 
     const navList = this.getImageNavigationList();
     const currentIndex = navList.findIndex((image) => image.id === this.state.selectedImageId);
+    const availableSelectedMethods = this.getAvailableSelectedMethods();
 
     this.toolbarZoomStat.textContent = `${Math.round(this.state.viewport.zoom * 100)}% zoom`;
-    this.toolbarPanelStat.textContent = `${this.state.selectedMethodIds.length} panel${this.state.selectedMethodIds.length === 1 ? '' : 's'}`;
+    this.toolbarPanelStat.textContent =
+      this.state.comparisonMode === COMPARISON_MODES.SWITCH
+        ? `Model ${availableSelectedMethods.length ? this.state.activeSwitchIndex + 1 : 0}/${availableSelectedMethods.length}`
+        : `${availableSelectedMethods.length} panel${availableSelectedMethods.length === 1 ? '' : 's'}`;
     this.toolbarImageStat.textContent =
       currentIndex === -1 ? 'Image 0/0' : `Image ${currentIndex + 1}/${navList.length}`;
   }
 
   renderGrid() {
-    if (this.gridView) {
-      this.gridView.destroy();
-      this.gridView = null;
-    }
-
-    clearElement(this.comparisonMount);
-
     if (this.state.loading) {
+      if (this.gridView) {
+        this.gridView.destroy();
+        this.gridView = null;
+      }
+      clearElement(this.comparisonMount);
       const loading = createElement('div', 'comparison-empty');
       loading.innerHTML = `
         <h3>Indexing your gallery...</h3>
@@ -1154,6 +1386,11 @@ class CuteVisualizerApp {
     }
 
     if (this.state.error) {
+      if (this.gridView) {
+        this.gridView.destroy();
+        this.gridView = null;
+      }
+      clearElement(this.comparisonMount);
       const error = createElement('div', 'comparison-empty');
       error.innerHTML = `
         <h3>Manifest could not be loaded</h3>
@@ -1165,6 +1402,11 @@ class CuteVisualizerApp {
 
     const currentImage = this.getCurrentImage();
     if (!currentImage) {
+      if (this.gridView) {
+        this.gridView.destroy();
+        this.gridView = null;
+      }
+      clearElement(this.comparisonMount);
       const empty = createElement('div', 'comparison-empty');
       empty.innerHTML = `
         <h3>No indexed images yet</h3>
@@ -1174,16 +1416,34 @@ class CuteVisualizerApp {
       return;
     }
 
-    const selectedMethods = this.getSelectedMethods().filter((method) =>
-      currentImage.availableIn.includes(method.id),
-    );
+    const selectedMethods = this.getAvailableSelectedMethods();
+    const isSwitchMode = this.state.comparisonMode === COMPARISON_MODES.SWITCH;
+    const renderedMethods =
+      isSwitchMode && selectedMethods.length
+        ? [selectedMethods[clamp(this.state.activeSwitchIndex, 0, selectedMethods.length - 1)]]
+        : selectedMethods;
 
-    this.gridView = new ComparisonGridView(this.comparisonMount, {
-      methods: selectedMethods,
+    const nextOptions = {
+      methods: renderedMethods,
       image: currentImage,
       viewport: this.state.viewport,
       onViewportChange: (nextViewport) => this.setViewport(nextViewport),
-    });
+      showSwitchHint: isSwitchMode && selectedMethods.length > 1,
+    };
+
+    if (isSwitchMode && this.gridView && this.gridView.canReuseSinglePanel(nextOptions)) {
+      this.gridView.updateSinglePanel(nextOptions);
+      return;
+    }
+
+    if (this.gridView) {
+      this.gridView.destroy();
+      this.gridView = null;
+    }
+
+    clearElement(this.comparisonMount);
+
+    this.gridView = new ComparisonGridView(this.comparisonMount, nextOptions);
     this.gridView.render();
   }
 }

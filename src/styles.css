@@ -143,6 +143,20 @@ code {
   white-space: nowrap;
 }
 
+.strip-header-side {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.mode-toggle-mount {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
 .methods-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--method-item-min-width), 1fr));
@@ -396,6 +410,7 @@ code {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 0.45rem;
   min-width: 0;
 }
@@ -407,6 +422,41 @@ code {
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.toolbar-mode-toggle {
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.toolbar-mode-button {
+  min-height: 1.8rem;
+  padding: 0.34rem 0.62rem;
+  border: 0;
+  background: var(--surface);
+  font-size: 0.71rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.toolbar-mode-button + .toolbar-mode-button {
+  border-left: 1px solid var(--border-strong);
+}
+
+.toolbar-mode-button:hover:not(.is-active) {
+  background: var(--accent-muted);
+}
+
+.toolbar-mode-button.is-active {
+  background: var(--accent-soft);
+  font-weight: 700;
 }
 
 .toolbar-actions {
@@ -556,6 +606,14 @@ code {
   white-space: nowrap;
 }
 
+.panel-meta-cluster {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
 .panel-meta-tag {
   display: inline-flex;
   align-items: center;
@@ -565,6 +623,22 @@ code {
   font-size: 0.65rem;
   font-weight: 600;
   color: var(--text-secondary);
+}
+
+.panel-shortcut-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.32rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.panel-shortcut-tag.is-hidden {
+  display: none;
 }
 
 .panel-stage {
@@ -754,6 +828,15 @@ code {
 }
 
 @media (max-width: 780px) {
+  .strip-header {
+    flex-wrap: wrap;
+  }
+
+  .strip-header-side {
+    width: 100%;
+    justify-content: space-between;
+  }
+
   .workspace {
     grid-template-columns: var(--sidebar-width) var(--sidebar-resizer-width) minmax(0, 1fr);
   }
@@ -770,7 +853,7 @@ code {
   }
 
   .toolbar-side {
-    justify-content: space-between;
+    justify-content: flex-start;
   }
 
   .toolbar-stats {
