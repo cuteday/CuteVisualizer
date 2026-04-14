@@ -66,13 +66,80 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
+function getImageMethodIds(image) {
+  if (!image || typeof image !== 'object') {
+    return [];
+  }
+
+  if (image.methods && typeof image.methods === 'object') {
+    return Object.keys(image.methods);
+  }
+
+  if (Array.isArray(image.availableIn)) {
+    return image.availableIn;
+  }
+
+  if (image.paths && typeof image.paths === 'object') {
+    return Object.keys(image.paths);
+  }
+
+  return [];
+}
+
+function getImageMethodRecord(image, methodId) {
+  if (!image || typeof image !== 'object' || !methodId) {
+    return null;
+  }
+
+  if (image.methods && typeof image.methods === 'object') {
+    const methodRecord = image.methods[methodId];
+    if (methodRecord && typeof methodRecord === 'object') {
+      return {
+        path: typeof methodRecord.path === 'string' ? methodRecord.path : '',
+        metadata:
+          methodRecord.metadata && typeof methodRecord.metadata === 'object'
+            ? methodRecord.metadata
+            : {},
+      };
+    }
+  }
+
+  if (image.paths && typeof image.paths[methodId] === 'string') {
+    const legacyMetadata =
+      image.metadata &&
+      typeof image.metadata === 'object' &&
+      image.metadata[methodId] &&
+      typeof image.metadata[methodId] === 'object'
+        ? image.metadata[methodId]
+        : {};
+
+    return {
+      path: image.paths[methodId],
+      metadata: legacyMetadata,
+    };
+  }
+
+  return null;
+}
+
 class ComparisonPanel {
-  constructor({ method, imagePath, imageLabel, viewport, onViewportChange, showSwitchHint = false }) {
+  constructor({
+    method,
+    imageId,
+    imagePath,
+    imageLabel,
+    viewport,
+    onViewportChange,
+    onInfoRequest = null,
+    showSwitchHint = false,
+  }) {
     this.method = method;
+    this.imageId = imageId;
     this.imagePath = imagePath;
     this.imageLabel = imageLabel;
     this.viewport = viewport;
     this.onViewportChange = onViewportChange;
+    this.onInfoRequest = onInfoRequest;
     this.naturalSize = null;
     this.isDragging = false;
     this.lastPointer = { x: 0, y: 0 };
@@ -86,14 +153,17 @@ class ComparisonPanel {
     this.handleMouseUp = this.handleMouseUp.bind(this);
     this.handleStageMouseMove = this.handleStageMouseMove.bind(this);
     this.handleStageMouseLeave = this.handleStageMouseLeave.bind(this);
+    this.handleMethodTagClick = this.handleMethodTagClick.bind(this);
     this.handleResize = this.handleResize.bind(this);
 
     this.element = createElement('article', 'comparison-panel');
     this.header = createElement('div', 'panel-header');
-    this.methodTag = createElement('span', 'method-tag', method.label);
+    this.methodTag = createElement('button', 'method-tag method-tag-button', method.label);
+    this.methodTag.type = 'button';
+    this.methodTag.title = `Show info for ${method.label}`;
     this.metaCluster = createElement('div', 'panel-meta-cluster');
     this.metaTag = createElement('span', 'panel-meta-tag', 'Loading...');
-    this.switchHintTag = createElement('span', 'panel-shortcut-tag', 'Switch: space');
+    this.switchHintTag = createElement('span', 'panel-shortcut-tag', 'Switch: SPACE');
     this.switchHintTag.title = 'Press Space to cycle to the next selected model';
     if (!showSwitchHint) {
       this.switchHintTag.classList.add('is-hidden');
@@ -114,6 +184,7 @@ class ComparisonPanel {
     this.stage.append(this.canvas, this.overlay, this.coordinateTip);
     this.element.append(this.header, this.stage);
 
+    this.methodTag.addEventListener('click', this.handleMethodTagClick);
     this.stage.addEventListener('wheel', this.handleWheel, { passive: false });
     this.stage.addEventListener('mousedown', this.handleMouseDown);
     this.stage.addEventListener('mousemove', this.handleStageMouseMove);
@@ -128,35 +199,15 @@ class ComparisonPanel {
       window.addEventListener('resize', this.handleResize);
     }
 
-    this.updateSource({ method, imagePath, imageLabel, showSwitchHint });
+    this.updateSource({ method, imageId, imagePath, imageLabel, onInfoRequest, showSwitchHint });
   }
 
   mount(parent) {
     parent.appendChild(this.element);
   }
 
-  updateSource({ method, imagePath, imageLabel, showSwitchHint = false }) {
-    const sourceChanged = imagePath !== this.imagePath;
-
-    this.method = method;
-    this.imagePath = imagePath;
-    this.imageLabel = imageLabel;
-    this.methodTag.textContent = method.label;
-    this.canvas.setAttribute('aria-label', `${method.label}: ${imageLabel}`);
-    this.switchHintTag.classList.toggle('is-hidden', !showSwitchHint);
-    this.element.classList.remove('is-error');
-
-    if (sourceChanged) {
-      this.metaTag.textContent = 'Loading...';
-      this.hoverPoint = null;
-      this.hideCoordinateTip();
-      this.image.src = imagePath;
-    } else {
-      this.refreshLayout();
-    }
-  }
-
   destroy() {
+    this.methodTag.removeEventListener('click', this.handleMethodTagClick);
     this.stage.removeEventListener('wheel', this.handleWheel);
     this.stage.removeEventListener('mousedown', this.handleMouseDown);
     this.stage.removeEventListener('mousemove', this.handleStageMouseMove);
@@ -175,6 +226,12 @@ class ComparisonPanel {
     this.viewport = viewport;
     this.refreshLayout();
     this.updateCursor();
+  }
+
+  handleMethodTagClick() {
+    if (typeof this.onInfoRequest === 'function') {
+      this.onInfoRequest(this.imageId, this.method.id);
+    }
   }
 
   applyLoadedImage(image, imagePath, imageLabel) {
@@ -218,12 +275,22 @@ class ComparisonPanel {
     nextImage.src = imagePath;
   }
 
-  updateSource({ method, imagePath, imageLabel, showSwitchHint = false }) {
+  updateSource({
+    method,
+    imageId,
+    imagePath,
+    imageLabel,
+    onInfoRequest = null,
+    showSwitchHint = false,
+  }) {
     const sourceChanged = imagePath !== this.imagePath;
 
     this.method = method;
+    this.imageId = imageId;
     this.imageLabel = imageLabel;
+    this.onInfoRequest = onInfoRequest;
     this.methodTag.textContent = method.label;
+    this.methodTag.title = `Show info for ${method.label}`;
     this.canvas.setAttribute('aria-label', `${method.label}: ${imageLabel}`);
     this.switchHintTag.classList.toggle('is-hidden', !showSwitchHint);
     this.element.classList.remove('is-error');
@@ -234,6 +301,8 @@ class ComparisonPanel {
     }
 
     this.metaTag.textContent = 'Loading...';
+    this.hoverPoint = null;
+    this.hideCoordinateTip();
     this.loadImageSource(imagePath, imageLabel);
   }
 
@@ -469,13 +538,19 @@ class ComparisonGridView {
     this.container.appendChild(grid);
 
     methods.forEach((method) => {
-      const imagePath = image.paths[method.id];
+      const methodRecord = getImageMethodRecord(image, method.id);
+      if (!methodRecord || !methodRecord.path) {
+        return;
+      }
+
       const panel = new ComparisonPanel({
         method,
-        imagePath,
+        imageId: image.id,
+        imagePath: methodRecord.path,
         imageLabel: image.label,
         viewport: this.options.viewport,
         onViewportChange: this.options.onViewportChange,
+        onInfoRequest: this.options.onInfoRequest,
         showSwitchHint,
       });
       panel.mount(grid);
@@ -501,10 +576,18 @@ class ComparisonGridView {
 
     const [method] = options.methods;
     const panel = this.panels[0];
+    const methodRecord = getImageMethodRecord(options.image, method.id);
+    if (!methodRecord || !methodRecord.path) {
+      this.render();
+      return;
+    }
+
     panel.updateSource({
       method,
-      imagePath: options.image.paths[method.id],
+      imageId: options.image.id,
+      imagePath: methodRecord.path,
       imageLabel: options.image.label,
+      onInfoRequest: options.onInfoRequest,
       showSwitchHint: options.showSwitchHint,
     });
     panel.setViewport(options.viewport);
@@ -533,6 +616,9 @@ class CuteVisualizerApp {
       selectedMethodIds: [],
       comparisonMode: COMPARISON_MODES.GRIDS,
       activeSwitchIndex: 0,
+      infoDrawerOpen: false,
+      infoDrawerImageId: null,
+      infoDrawerMethodId: null,
       imageSearch: '',
       viewport: { ...DEFAULT_VIEWPORT },
       themeColor: this.loadThemeColor(),
@@ -602,6 +688,8 @@ class CuteVisualizerApp {
             <section class="toolbar-bar" id="toolbarCard"></section>
             <section class="comparison-area">
               <div class="comparison-mount" id="comparisonMount"></div>
+              <div class="info-drawer-backdrop" id="infoDrawerBackdrop"></div>
+              <aside class="info-drawer" id="infoDrawer" aria-hidden="true"></aside>
             </section>
           </main>
         </div>
@@ -625,6 +713,8 @@ class CuteVisualizerApp {
     this.imageList = document.getElementById('imageList');
     this.toolbarCard = document.getElementById('toolbarCard');
     this.comparisonMount = document.getElementById('comparisonMount');
+    this.infoDrawer = document.getElementById('infoDrawer');
+    this.infoDrawerBackdrop = document.getElementById('infoDrawerBackdrop');
     this.footerBrand = document.getElementById('footerBrand');
     this.footerStatus = document.getElementById('footerStatus');
     this.footerControls = document.getElementById('footerControls');
@@ -637,6 +727,7 @@ class CuteVisualizerApp {
 
     this.sidebarResizer.addEventListener('mousedown', this.handleSidebarResizeStart);
     this.sidebarResizer.addEventListener('keydown', this.handleSidebarResizeKeydown);
+    this.infoDrawerBackdrop.addEventListener('click', () => this.closeInfoDrawer());
     window.addEventListener('resize', this.handleWindowResize);
 
     if (this.sidebarWidth !== null) {
@@ -851,6 +942,7 @@ class CuteVisualizerApp {
     this.updateSidebar();
     this.updateToolbar();
     this.renderGrid();
+    this.renderInfoDrawer();
   }
 
   getCurrentImage() {
@@ -863,9 +955,17 @@ class CuteVisualizerApp {
     );
   }
 
+  getMethodById(methodId) {
+    if (!this.state.manifest) {
+      return null;
+    }
+
+    return this.state.manifest.methods.find((method) => method.id === methodId) ?? null;
+  }
+
   getAvailableMethodIds() {
     const image = this.getCurrentImage();
-    return new Set(image ? image.availableIn : []);
+    return new Set(getImageMethodIds(image));
   }
 
   getSelectedMethods() {
@@ -885,8 +985,34 @@ class CuteVisualizerApp {
 
     const selectedSet = new Set(this.state.selectedMethodIds);
     return this.state.manifest.methods.filter(
-      (method) => selectedSet.has(method.id) && currentImage.availableIn.includes(method.id),
+      (method) => selectedSet.has(method.id) && getImageMethodIds(currentImage).includes(method.id),
     );
+  }
+
+  getInfoDrawerMethodIds(image = this.getCurrentImage()) {
+    if (!image) {
+      return [];
+    }
+
+    const selectedAvailable = this.getAvailableSelectedMethods().map((method) => method.id);
+    return selectedAvailable.length ? selectedAvailable : getImageMethodIds(image);
+  }
+
+  normalizeInfoDrawerState() {
+    if (!this.state.infoDrawerOpen) {
+      return;
+    }
+
+    const currentImage = this.getCurrentImage();
+    if (!currentImage || currentImage.id !== this.state.infoDrawerImageId) {
+      this.closeInfoDrawer();
+      return;
+    }
+
+    const methodIds = this.getInfoDrawerMethodIds(currentImage);
+    if (!methodIds.length || !methodIds.includes(this.state.infoDrawerMethodId)) {
+      this.closeInfoDrawer();
+    }
   }
 
   normalizeSwitchState({ resetIndex = false } = {}) {
@@ -938,7 +1064,7 @@ class CuteVisualizerApp {
 
   ensureValidMethodSelection(resetViewport) {
     const currentImage = this.getCurrentImage();
-    const availableIds = currentImage ? currentImage.availableIn : [];
+    const availableIds = currentImage ? getImageMethodIds(currentImage) : [];
     const availableSet = new Set(availableIds);
     const cleaned = this.state.selectedMethodIds
       .filter((methodId) => availableSet.has(methodId))
@@ -958,6 +1084,7 @@ class CuteVisualizerApp {
     }
 
     this.normalizeSwitchState({ resetIndex: resetViewport });
+    this.normalizeInfoDrawerState();
   }
 
   setCurrentImage(imageId) {
@@ -967,6 +1094,7 @@ class CuteVisualizerApp {
 
     this.state.selectedImageId = imageId;
     this.ensureValidMethodSelection(true);
+    this.closeInfoDrawer();
     this.updateSidebar();
     this.updateMethodSelector();
     this.updateToolbar();
@@ -1002,6 +1130,7 @@ class CuteVisualizerApp {
     }
 
     this.normalizeSwitchState({ resetIndex: this.state.comparisonMode === COMPARISON_MODES.SWITCH });
+    this.normalizeInfoDrawerState();
     this.updateMethodSelector();
     this.updateToolbar();
     this.renderGrid();
@@ -1059,11 +1188,70 @@ class CuteVisualizerApp {
 
     const count = availableMethods.length;
     this.state.activeSwitchIndex = (this.state.activeSwitchIndex + step + count) % count;
+    if (this.state.infoDrawerOpen) {
+      this.state.infoDrawerMethodId = availableMethods[this.state.activeSwitchIndex].id;
+      this.renderInfoDrawer();
+    }
     this.updateToolbarStats();
     this.renderGrid();
   }
 
+  openInfoDrawer(imageId, methodId) {
+    const currentImage = this.getCurrentImage();
+    if (!currentImage || currentImage.id !== imageId) {
+      return;
+    }
+
+    if (!getImageMethodRecord(currentImage, methodId)) {
+      return;
+    }
+
+    this.state.infoDrawerOpen = true;
+    this.state.infoDrawerImageId = imageId;
+    this.state.infoDrawerMethodId = methodId;
+    this.renderInfoDrawer();
+  }
+
+  closeInfoDrawer() {
+    this.state.infoDrawerOpen = false;
+    this.state.infoDrawerImageId = null;
+    this.state.infoDrawerMethodId = null;
+    this.renderInfoDrawer();
+  }
+
+  cycleInfoDrawerMethod(step = 1) {
+    if (!this.state.infoDrawerOpen) {
+      return;
+    }
+
+    const currentImage = this.getCurrentImage();
+    const methodIds = this.getInfoDrawerMethodIds(currentImage);
+    const currentIndex = methodIds.indexOf(this.state.infoDrawerMethodId);
+    if (currentIndex === -1 || methodIds.length < 2) {
+      return;
+    }
+
+    const nextIndex = (currentIndex + step + methodIds.length) % methodIds.length;
+    const nextMethodId = methodIds[nextIndex];
+
+    if (this.state.comparisonMode === COMPARISON_MODES.SWITCH) {
+      this.state.activeSwitchIndex = nextIndex;
+      this.state.infoDrawerMethodId = nextMethodId;
+      this.updateToolbarStats();
+      this.renderGrid();
+    } else {
+      this.state.infoDrawerMethodId = nextMethodId;
+      this.renderInfoDrawer();
+    }
+  }
+
   handleGlobalKeydown(event) {
+    if (event.code === 'Escape' && this.state.infoDrawerOpen) {
+      event.preventDefault();
+      this.closeInfoDrawer();
+      return;
+    }
+
     if (
       event.defaultPrevented ||
       event.code !== 'Space' ||
@@ -1094,6 +1282,101 @@ class CuteVisualizerApp {
 
     event.preventDefault();
     this.cycleSwitchMethod(1);
+  }
+
+  renderInfoValue(key, value) {
+    const row = createElement('div', 'info-drawer-row');
+    const keyLabel = createElement('div', 'info-drawer-key', key);
+    row.appendChild(keyLabel);
+
+    if (value !== null && typeof value === 'object') {
+      const pre = createElement('pre', 'info-drawer-json');
+      pre.textContent = JSON.stringify(value, null, 2);
+      row.appendChild(pre);
+      return row;
+    }
+
+    const valueLabel = createElement('div', 'info-drawer-value', String(value));
+    valueLabel.title = String(value);
+    row.appendChild(valueLabel);
+    return row;
+  }
+
+  renderInfoDrawer() {
+    if (!this.infoDrawer || !this.infoDrawerBackdrop) {
+      return;
+    }
+
+    clearElement(this.infoDrawer);
+
+    const isOpen = this.state.infoDrawerOpen;
+    this.infoDrawer.classList.toggle('is-open', isOpen);
+    this.infoDrawerBackdrop.classList.toggle('is-open', isOpen);
+    this.infoDrawer.setAttribute('aria-hidden', String(!isOpen));
+
+    if (!isOpen) {
+      return;
+    }
+
+    const currentImage = this.getCurrentImage();
+    const method = this.getMethodById(this.state.infoDrawerMethodId);
+    const methodRecord =
+      currentImage && method ? getImageMethodRecord(currentImage, method.id) : null;
+
+    if (!currentImage || !method || !methodRecord) {
+      this.closeInfoDrawer();
+      return;
+    }
+
+    const drawerHeader = createElement('div', 'info-drawer-header');
+    const drawerTitle = createElement('div', 'info-drawer-title', 'Info');
+    const actions = createElement('div', 'info-drawer-actions');
+    const methodIds = this.getInfoDrawerMethodIds(currentImage);
+    if (methodIds.length > 1) {
+      const nextButton = createElement('button', 'info-drawer-button', 'Next method');
+      nextButton.type = 'button';
+      nextButton.addEventListener('click', () => this.cycleInfoDrawerMethod(1));
+      actions.appendChild(nextButton);
+    }
+    const closeButton = createElement('button', 'info-drawer-button', 'Close');
+    closeButton.type = 'button';
+    closeButton.addEventListener('click', () => this.closeInfoDrawer());
+    actions.appendChild(closeButton);
+
+    drawerHeader.append(drawerTitle, actions);
+
+    const drawerIdentity = createElement('div', 'info-drawer-identity');
+    const drawerMethod = createElement('div', 'info-drawer-method', method.label);
+    drawerMethod.title = method.label;
+    const drawerImage = createElement('div', 'info-drawer-image', currentImage.label);
+    drawerImage.title = currentImage.label;
+    drawerIdentity.append(drawerMethod, drawerImage);
+
+    const drawerBody = createElement('div', 'info-drawer-body');
+    const recordList = createElement('div', 'info-drawer-list');
+    recordList.appendChild(this.renderInfoValue('path', methodRecord.path));
+
+    const metadata =
+      methodRecord.metadata && typeof methodRecord.metadata === 'object'
+        ? methodRecord.metadata
+        : {};
+    const metadataKeys = Object.keys(metadata);
+    if (!metadataKeys.length) {
+      recordList.appendChild(
+        createElement(
+          'div',
+          'info-drawer-empty',
+          'No custom metadata for this method-image pair.',
+        ),
+      );
+    } else {
+      metadataKeys.forEach((key) => {
+        recordList.appendChild(this.renderInfoValue(key, metadata[key]));
+      });
+    }
+
+    drawerBody.appendChild(recordList);
+    this.infoDrawer.append(drawerHeader, drawerIdentity, drawerBody);
   }
 
   setViewport(nextViewport) {
@@ -1265,8 +1548,10 @@ class CuteVisualizerApp {
         button.classList.add('is-active');
       }
 
-      const thumbnailMethodId = image.availableIn[0];
-      const thumbnailPath = thumbnailMethodId ? image.paths[thumbnailMethodId] : '';
+      const thumbnailMethodId = getImageMethodIds(image)[0];
+      const thumbnailPath = thumbnailMethodId
+        ? getImageMethodRecord(image, thumbnailMethodId)?.path ?? ''
+        : '';
       const thumbFrame = createElement('div', 'image-item-thumb-frame');
       const thumb = createElement('img', 'image-item-thumb');
       thumb.alt = '';
@@ -1288,7 +1573,7 @@ class CuteVisualizerApp {
       const meta = createElement(
         'span',
         'image-item-meta',
-        `${image.availableIn.length}/${manifest.methods.length} methods`,
+        `${getImageMethodIds(image).length}/${manifest.methods.length} methods`,
       );
       copy.append(title, key, meta);
 
@@ -1304,7 +1589,7 @@ class CuteVisualizerApp {
     const currentImage = this.getCurrentImage();
     const navList = this.getImageNavigationList();
     const currentIndex = navList.findIndex((image) => image.id === this.state.selectedImageId);
-    const currentImageCount = currentImage ? currentImage.availableIn.length : 0;
+    const currentImageCount = currentImage ? getImageMethodIds(currentImage).length : 0;
 
     const leftCluster = createElement('div', 'toolbar-main');
     const title = createElement(
@@ -1428,6 +1713,7 @@ class CuteVisualizerApp {
       image: currentImage,
       viewport: this.state.viewport,
       onViewportChange: (nextViewport) => this.setViewport(nextViewport),
+      onInfoRequest: (imageId, methodId) => this.openInfoDrawer(imageId, methodId),
       showSwitchHint: isSwitchMode && selectedMethods.length > 1,
     };
 

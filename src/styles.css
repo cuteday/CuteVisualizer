@@ -550,6 +550,7 @@ code {
 
 .comparison-area {
   display: flex;
+  position: relative;
   min-width: 0;
   min-height: 0;
   background: var(--accent-soft);
@@ -604,6 +605,24 @@ code {
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.method-tag-button {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    text-decoration-color 120ms ease;
+}
+
+.method-tag-button:hover,
+.method-tag-button:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: currentColor;
 }
 
 .panel-meta-cluster {
@@ -697,6 +716,176 @@ code {
 .comparison-panel.is-dragging .panel-overlay,
 .comparison-panel:hover .panel-overlay {
   opacity: 1;
+}
+
+.info-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(47, 41, 65, 0.14);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+
+.info-drawer-backdrop.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.info-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  width: min(24rem, 42vw);
+  min-width: min(20rem, 100%);
+  border-left: 1px solid var(--border-strong);
+  background: var(--surface);
+  box-shadow: -12px 0 24px rgba(47, 41, 65, 0.08);
+  transform: translateX(100%);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform 180ms ease,
+    opacity 140ms ease;
+}
+
+.info-drawer.is-open {
+  transform: translateX(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.info-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.8rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.info-drawer-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  padding: 0.75rem 0.9rem 0.8rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.info-drawer-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.info-drawer-method {
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text-primary);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.info-drawer-image {
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--text-secondary);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.info-drawer-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.info-drawer-button {
+  min-height: 1.8rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.55rem;
+  background: var(--surface);
+  font-size: 0.68rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+
+.info-drawer-button:hover:not(:disabled),
+.info-drawer-button:focus-visible {
+  border-color: var(--accent-strong);
+  background: var(--accent-muted);
+}
+
+.info-drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.85rem 0.9rem 1rem;
+}
+
+.info-drawer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.info-drawer-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.info-drawer-key {
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.info-drawer-value {
+  font-size: 0.72rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.info-drawer-json {
+  margin: 0;
+  overflow: auto;
+  padding: 0.55rem 0.65rem;
+  border-radius: 0.5rem;
+  background: var(--surface-muted);
+  font-size: 0.69rem;
+  line-height: 1.45;
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    "Liberation Mono",
+    monospace;
+}
+
+.info-drawer-empty {
+  padding: 0.85rem;
+  border: 1px dashed var(--border-strong);
+  border-radius: 0.55rem;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  background: var(--surface-muted);
 }
 
 .comparison-empty,

@@ -85,6 +85,51 @@ def iter_image_files(method_dir: pathlib.Path, extensions: Iterable[str]) -> Lis
     return sorted(files, key=lambda path: path.relative_to(method_dir).as_posix())
 
 
+def load_existing_method_metadata(output_path: pathlib.Path) -> Dict[str, Dict[str, Dict[str, object]]]:
+    if not output_path.exists():
+        return {}
+
+    try:
+        manifest = json.loads(output_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+    metadata_by_image: Dict[str, Dict[str, Dict[str, object]]] = {}
+
+    for image_entry in manifest.get("images", []):
+        image_key = image_entry.get("key")
+        if not isinstance(image_key, str):
+            continue
+
+        method_metadata: Dict[str, Dict[str, object]] = {}
+
+        methods_record = image_entry.get("methods")
+        if isinstance(methods_record, dict):
+            for method_id, method_entry in methods_record.items():
+                if not isinstance(method_id, str) or not isinstance(method_entry, dict):
+                    continue
+                metadata = method_entry.get("metadata", {})
+                if isinstance(metadata, dict):
+                    method_metadata[method_id] = metadata
+
+        legacy_metadata = image_entry.get("metadata")
+        if isinstance(legacy_metadata, dict):
+            for method_id, method_entry in legacy_metadata.items():
+                if not isinstance(method_id, str) or method_id in method_metadata:
+                    continue
+                if not isinstance(method_entry, dict):
+                    continue
+                if "metadata" in method_entry and isinstance(method_entry["metadata"], dict):
+                    method_metadata[method_id] = method_entry["metadata"]
+                else:
+                    method_metadata[method_id] = method_entry
+
+        if method_metadata:
+            metadata_by_image[image_key] = method_metadata
+
+    return metadata_by_image
+
+
 def build_manifest(
     methods_dir: pathlib.Path,
     output_path: pathlib.Path,
@@ -102,6 +147,7 @@ def build_manifest(
     if web_root not in methods_dir.parents and methods_dir != web_root:
         raise ValueError(f"Methods directory {methods_dir} must live under web root {web_root}.")
 
+    existing_metadata = load_existing_method_metadata(output_path)
     method_dirs = sorted(
         [path for path in methods_dir.iterdir() if path.is_dir() and not path.name.startswith(".")],
         key=lambda path: path.name.lower(),
@@ -138,12 +184,13 @@ def build_manifest(
                     "key": image_key,
                     "label": image_file.name,
                     "sortKey": image_key.lower(),
-                    "availableIn": [],
-                    "paths": {},
+                    "methods": {},
                 },
             )
-            image_entry["availableIn"].append(method_id)
-            image_entry["paths"][method_id] = relative_to_root(image_file, web_root)
+            image_entry["methods"][method_id] = {
+                "path": relative_to_root(image_file, web_root),
+                "metadata": existing_metadata.get(image_key, {}).get(method_id, {}),
+            }
 
         methods.append(
             MethodRecord(
@@ -158,7 +205,10 @@ def build_manifest(
     images = []
     for image_key in sorted(image_map, key=lambda key: image_map[key]["sortKey"]):
         image_entry = image_map[image_key]
-        image_entry["availableIn"] = sorted(image_entry["availableIn"])
+        image_entry["methods"] = {
+            method_id: image_entry["methods"][method_id]
+            for method_id in sorted(image_entry["methods"])
+        }
         images.append(image_entry)
 
     manifest = {
