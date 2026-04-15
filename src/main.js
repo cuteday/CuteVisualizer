@@ -6,6 +6,7 @@ import {
   buildThemeTokens,
   normalizeThemeColor,
 } from './lib/theme.js';
+import { RuntimeThumbnailCache } from './lib/runtimeThumbnailCache.js';
 import {
   DEFAULT_VIEWPORT,
   canPan,
@@ -23,6 +24,8 @@ const MIN_SIDEBAR_WIDTH = 180;
 const MAX_SIDEBAR_WIDTH = 420;
 const MIN_VIEWER_WIDTH = 320;
 const SIDEBAR_KEYBOARD_STEP = 16;
+const SIDEBAR_THUMBNAIL_SIZE = 96;
+const SIDEBAR_THUMBNAIL_CONCURRENCY = 3;
 const COMPARISON_MODES = {
   GRIDS: 'grids',
   SWITCH: 'switch',
@@ -611,6 +614,11 @@ class CuteVisualizerApp {
     this.sidebarItems = new Map();
     this.sidebarOrderKey = '';
     this.sidebarScrollTop = 0;
+    this.thumbnailService = new RuntimeThumbnailCache({
+      targetSize: SIDEBAR_THUMBNAIL_SIZE,
+      maxConcurrency: SIDEBAR_THUMBNAIL_CONCURRENCY,
+    });
+    this.sidebarThumbnailObserver = null;
     this.state = {
       manifest: null,
       loading: true,
@@ -633,8 +641,10 @@ class CuteVisualizerApp {
     this.handleSidebarResizeKeydown = this.handleSidebarResizeKeydown.bind(this);
     this.handleWindowResize = this.handleWindowResize.bind(this);
     this.handleGlobalKeydown = this.handleGlobalKeydown.bind(this);
+    this.handleSidebarThumbnailIntersection = this.handleSidebarThumbnailIntersection.bind(this);
 
     this.renderShell();
+    this.initializeSidebarThumbnailObserver();
     this.applyTheme();
     document.addEventListener('keydown', this.handleGlobalKeydown);
     this.reloadManifest();
@@ -820,6 +830,68 @@ class CuteVisualizerApp {
     } catch (_error) {
       return null;
     }
+  }
+
+  initializeSidebarThumbnailObserver() {
+    if (!('IntersectionObserver' in window) || !this.imageList) {
+      return;
+    }
+
+    this.sidebarThumbnailObserver = new IntersectionObserver(
+      this.handleSidebarThumbnailIntersection,
+      {
+        root: this.imageList,
+        rootMargin: '160px 0px',
+        threshold: 0.01,
+      },
+    );
+  }
+
+  handleSidebarThumbnailIntersection(entries) {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) {
+        return;
+      }
+
+      if (this.sidebarThumbnailObserver) {
+        this.sidebarThumbnailObserver.unobserve(entry.target);
+      }
+
+      this.requestSidebarThumbnail(entry.target);
+    });
+  }
+
+  getThumbnailCacheKey(image, methodId, sourcePath) {
+    const generatedAt = this.state.manifest?.generatedAt ?? 'unknown';
+    return `thumb:v1:${generatedAt}:${methodId}:${image.id}:${SIDEBAR_THUMBNAIL_SIZE}:${sourcePath}`;
+  }
+
+  requestSidebarThumbnail(thumb) {
+    if (!thumb || thumb.dataset.thumbRequested === 'true') {
+      return;
+    }
+
+    const cacheKey = thumb.dataset.thumbKey;
+    const sourcePath = thumb.dataset.thumbSrc;
+    if (!cacheKey || !sourcePath) {
+      return;
+    }
+
+    thumb.dataset.thumbRequested = 'true';
+    this.thumbnailService
+      .getThumbnailUrl(cacheKey, sourcePath)
+      .then((thumbnailUrl) => {
+        if (!thumb.isConnected || thumb.dataset.thumbKey !== cacheKey) {
+          return;
+        }
+        thumb.src = thumbnailUrl;
+      })
+      .catch(() => {
+        if (!thumb.isConnected || thumb.dataset.thumbKey !== cacheKey) {
+          return;
+        }
+        thumb.src = sourcePath;
+      });
   }
 
   getCurrentSidebarWidth() {
@@ -1088,17 +1160,40 @@ class CuteVisualizerApp {
     const thumbFrame = createElement('div', 'image-item-thumb-frame');
     const thumb = createElement('img', 'image-item-thumb');
     thumb.alt = '';
-    thumb.loading = 'lazy';
+    thumb.loading = 'eager';
     thumb.decoding = 'async';
     thumb.fetchPriority = 'low';
     thumb.draggable = false;
-    thumb.src = thumbnailPath;
+    thumb.width = SIDEBAR_THUMBNAIL_SIZE;
+    thumb.height = SIDEBAR_THUMBNAIL_SIZE;
     thumb.title = image.key;
+    thumbFrame.classList.add('is-loading');
+    thumb.addEventListener('load', () => {
+      thumbFrame.classList.remove('is-loading');
+    });
     thumb.addEventListener('error', () => {
+      thumbFrame.classList.remove('is-loading');
       thumbFrame.classList.add('is-empty');
       thumb.remove();
     });
+
+    if (thumbnailPath) {
+      thumb.dataset.thumbKey = this.getThumbnailCacheKey(image, thumbnailMethodId, thumbnailPath);
+      thumb.dataset.thumbSrc = thumbnailPath;
+      thumb.dataset.thumbRequested = 'false';
+    } else {
+      thumbFrame.classList.remove('is-loading');
+      thumbFrame.classList.add('is-empty');
+    }
+
     thumbFrame.appendChild(thumb);
+    if (thumbnailPath) {
+      if (this.sidebarThumbnailObserver) {
+        this.sidebarThumbnailObserver.observe(thumb);
+      } else {
+        this.requestSidebarThumbnail(thumb);
+      }
+    }
 
     const copy = createElement('div', 'image-item-copy');
     const title = createElement('span', 'image-item-title', image.label);
@@ -1585,6 +1680,9 @@ class CuteVisualizerApp {
       : '0 shown';
 
     if (!manifest || !manifest.images.length) {
+      if (this.sidebarThumbnailObserver) {
+        this.sidebarThumbnailObserver.disconnect();
+      }
       clearElement(this.imageList);
       this.sidebarItems.clear();
       this.sidebarOrderKey = '';
@@ -1599,6 +1697,9 @@ class CuteVisualizerApp {
     }
 
     if (!filteredImages.length) {
+      if (this.sidebarThumbnailObserver) {
+        this.sidebarThumbnailObserver.disconnect();
+      }
       clearElement(this.imageList);
       this.sidebarItems.clear();
       this.sidebarOrderKey = '';
@@ -1620,6 +1721,9 @@ class CuteVisualizerApp {
     }
 
     const previousScrollTop = this.imageList.scrollTop;
+    if (this.sidebarThumbnailObserver) {
+      this.sidebarThumbnailObserver.disconnect();
+    }
     clearElement(this.imageList);
     this.sidebarItems.clear();
 
