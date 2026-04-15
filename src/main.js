@@ -608,6 +608,9 @@ class CuteVisualizerApp {
     this.isResizingSidebar = false;
     this.themePresetSelect = null;
     this.themeColorInput = null;
+    this.sidebarItems = new Map();
+    this.sidebarOrderKey = '';
+    this.sidebarScrollTop = 0;
     this.state = {
       manifest: null,
       loading: true,
@@ -1053,6 +1056,68 @@ class CuteVisualizerApp {
     });
   }
 
+  getSidebarOrderKey(images) {
+    return images.map((image) => image.id).join('|');
+  }
+
+  updateSidebarActiveState(previousImageId = null) {
+    if (previousImageId && this.sidebarItems.has(previousImageId)) {
+      this.sidebarItems.get(previousImageId).classList.remove('is-active');
+    }
+
+    if (this.state.selectedImageId && this.sidebarItems.has(this.state.selectedImageId)) {
+      this.sidebarItems.get(this.state.selectedImageId).classList.add('is-active');
+    }
+  }
+
+  buildSidebarItem(image, manifest) {
+    const button = createElement('button', 'image-list-item');
+    button.type = 'button';
+    const fullImageLabel =
+      image.label === image.key ? image.key : `${image.label}\n${image.key}`;
+    button.title = fullImageLabel;
+    button.setAttribute('aria-label', fullImageLabel.replace('\n', ' - '));
+    if (image.id === this.state.selectedImageId) {
+      button.classList.add('is-active');
+    }
+
+    const thumbnailMethodId = getImageMethodIds(image)[0];
+    const thumbnailPath = thumbnailMethodId
+      ? getImageMethodRecord(image, thumbnailMethodId)?.path ?? ''
+      : '';
+    const thumbFrame = createElement('div', 'image-item-thumb-frame');
+    const thumb = createElement('img', 'image-item-thumb');
+    thumb.alt = '';
+    thumb.loading = 'lazy';
+    thumb.decoding = 'async';
+    thumb.fetchPriority = 'low';
+    thumb.draggable = false;
+    thumb.src = thumbnailPath;
+    thumb.title = image.key;
+    thumb.addEventListener('error', () => {
+      thumbFrame.classList.add('is-empty');
+      thumb.remove();
+    });
+    thumbFrame.appendChild(thumb);
+
+    const copy = createElement('div', 'image-item-copy');
+    const title = createElement('span', 'image-item-title', image.label);
+    title.title = image.label;
+    const key = createElement('span', 'image-item-key', image.key);
+    key.title = image.key;
+    const meta = createElement(
+      'span',
+      'image-item-meta',
+      `${getImageMethodIds(image).length}/${manifest.methods.length} methods`,
+    );
+    copy.append(title, key, meta);
+
+    button.append(thumbFrame, copy);
+    button.addEventListener('click', () => this.setCurrentImage(image.id));
+    this.sidebarItems.set(image.id, button);
+    return button;
+  }
+
   getImageNavigationList() {
     const filtered = this.getFilteredImages();
     if (filtered.some((image) => image.id === this.state.selectedImageId)) {
@@ -1092,10 +1157,11 @@ class CuteVisualizerApp {
       return;
     }
 
+    const previousImageId = this.state.selectedImageId;
     this.state.selectedImageId = imageId;
     this.ensureValidMethodSelection(true);
     this.closeInfoDrawer();
-    this.updateSidebar();
+    this.updateSidebar({ previousImageId });
     this.updateMethodSelector();
     this.updateToolbar();
     this.renderGrid();
@@ -1239,6 +1305,7 @@ class CuteVisualizerApp {
       this.state.infoDrawerMethodId = nextMethodId;
       this.updateToolbarStats();
       this.renderGrid();
+      this.renderInfoDrawer();
     } else {
       this.state.infoDrawerMethodId = nextMethodId;
       this.renderInfoDrawer();
@@ -1510,9 +1577,7 @@ class CuteVisualizerApp {
     });
   }
 
-  updateSidebar() {
-    clearElement(this.imageList);
-
+  updateSidebar({ previousImageId = null } = {}) {
     const filteredImages = this.getFilteredImages();
     const manifest = this.state.manifest;
     this.imageSectionMeta.textContent = manifest
@@ -1520,6 +1585,9 @@ class CuteVisualizerApp {
       : '0 shown';
 
     if (!manifest || !manifest.images.length) {
+      clearElement(this.imageList);
+      this.sidebarItems.clear();
+      this.sidebarOrderKey = '';
       this.imageList.appendChild(
         createElement(
           'div',
@@ -1531,56 +1599,37 @@ class CuteVisualizerApp {
     }
 
     if (!filteredImages.length) {
+      clearElement(this.imageList);
+      this.sidebarItems.clear();
+      this.sidebarOrderKey = '';
       this.imageList.appendChild(
         createElement('div', 'empty-inline', 'No images matched the current search filter.'),
       );
       return;
     }
 
+    const nextOrderKey = this.getSidebarOrderKey(filteredImages);
+    const canPatchSelectionOnly =
+      this.sidebarItems.size > 0 &&
+      this.sidebarOrderKey === nextOrderKey &&
+      this.imageList.children.length === filteredImages.length;
+
+    if (canPatchSelectionOnly) {
+      this.updateSidebarActiveState(previousImageId);
+      return;
+    }
+
+    const previousScrollTop = this.imageList.scrollTop;
+    clearElement(this.imageList);
+    this.sidebarItems.clear();
+
     filteredImages.forEach((image) => {
-      const button = createElement('button', 'image-list-item');
-      button.type = 'button';
-      const fullImageLabel =
-        image.label === image.key ? image.key : `${image.label}\n${image.key}`;
-      button.title = fullImageLabel;
-      button.setAttribute('aria-label', fullImageLabel.replace('\n', ' - '));
-      if (image.id === this.state.selectedImageId) {
-        button.classList.add('is-active');
-      }
-
-      const thumbnailMethodId = getImageMethodIds(image)[0];
-      const thumbnailPath = thumbnailMethodId
-        ? getImageMethodRecord(image, thumbnailMethodId)?.path ?? ''
-        : '';
-      const thumbFrame = createElement('div', 'image-item-thumb-frame');
-      const thumb = createElement('img', 'image-item-thumb');
-      thumb.alt = '';
-      thumb.loading = 'lazy';
-      thumb.decoding = 'async';
-      thumb.src = thumbnailPath;
-      thumb.title = image.key;
-      thumb.addEventListener('error', () => {
-        thumbFrame.classList.add('is-empty');
-        thumb.remove();
-      });
-      thumbFrame.appendChild(thumb);
-
-      const copy = createElement('div', 'image-item-copy');
-      const title = createElement('span', 'image-item-title', image.label);
-      title.title = image.label;
-      const key = createElement('span', 'image-item-key', image.key);
-      key.title = image.key;
-      const meta = createElement(
-        'span',
-        'image-item-meta',
-        `${getImageMethodIds(image).length}/${manifest.methods.length} methods`,
-      );
-      copy.append(title, key, meta);
-
-      button.append(thumbFrame, copy);
-      button.addEventListener('click', () => this.setCurrentImage(image.id));
-      this.imageList.appendChild(button);
+      this.imageList.appendChild(this.buildSidebarItem(image, manifest));
     });
+
+    this.sidebarOrderKey = nextOrderKey;
+    this.imageList.scrollTop = previousScrollTop;
+    this.updateSidebarActiveState(previousImageId);
   }
 
   updateToolbar() {
