@@ -34,6 +34,7 @@ class MethodRecord:
     relative_dir: str
     image_count: int
     preview_image_key: str | None
+    metadata: Dict[str, object]
 
 
 def slugify(value: str) -> str:
@@ -130,6 +131,92 @@ def load_existing_method_metadata(output_path: pathlib.Path) -> Dict[str, Dict[s
     return metadata_by_image
 
 
+def load_existing_method_records(output_path: pathlib.Path) -> Dict[str, Dict[str, object]]:
+    if not output_path.exists():
+        return {}
+
+    try:
+        manifest = json.loads(output_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+    method_records: Dict[str, Dict[str, object]] = {}
+    for method_entry in manifest.get("methods", []):
+        if not isinstance(method_entry, dict):
+            continue
+        method_id = method_entry.get("id")
+        if not isinstance(method_id, str):
+            continue
+        metadata = method_entry.get("metadata")
+        if isinstance(metadata, dict):
+            method_records[method_id] = metadata
+    return method_records
+
+
+def merge_json_objects(base, override):
+    if not isinstance(base, dict):
+        return override
+    if not isinstance(override, dict):
+        return override
+
+    merged = dict(base)
+    for key, value in override.items():
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            merged[key] = merge_json_objects(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def load_method_metadata_file(method_dir: pathlib.Path):
+    metadata_path = method_dir / "metadata.json"
+    if not metadata_path.exists():
+        return None, None, {}, {}
+
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"Failed to parse metadata file {metadata_path}: {error}") from error
+
+    if not isinstance(payload, dict):
+        raise ValueError(f"Method metadata file must contain a JSON object: {metadata_path}")
+
+    method_id_override = payload.get("id")
+    if method_id_override is not None and not isinstance(method_id_override, str):
+        raise ValueError(f"metadata.json field 'id' must be a string in {metadata_path}")
+
+    method_label_override = payload.get("label")
+    if method_label_override is not None and not isinstance(method_label_override, str):
+        raise ValueError(f"metadata.json field 'label' must be a string in {metadata_path}")
+
+    has_explicit_method_metadata = "method" in payload
+    method_metadata = payload.get("method")
+    if method_metadata is None:
+        method_metadata = {}
+    elif not isinstance(method_metadata, dict):
+        raise ValueError(f"metadata.json field 'method' must be a JSON object in {metadata_path}")
+
+    # Backward-compatibility path:
+    # If there is no explicit "method" object, treat top-level scalar values
+    # as method-level metadata. Object-valued keys remain reserved for
+    # per-image metadata below.
+    if not has_explicit_method_metadata:
+        for key, value in payload.items():
+            if key in {"id", "label", "method"}:
+                continue
+            if isinstance(value, (str, int, float, bool)) or value is None:
+                method_metadata[key] = value
+
+    image_metadata = {}
+    for key, value in payload.items():
+        if key in {"id", "label", "method"}:
+            continue
+        if isinstance(value, dict):
+            image_metadata[key] = value
+
+    return method_id_override, method_label_override, method_metadata, image_metadata
+
+
 def build_manifest(
     methods_dir: pathlib.Path,
     output_path: pathlib.Path,
@@ -148,6 +235,7 @@ def build_manifest(
         raise ValueError(f"Methods directory {methods_dir} must live under web root {web_root}.")
 
     existing_metadata = load_existing_method_metadata(output_path)
+    existing_method_records = load_existing_method_records(output_path)
     method_dirs = sorted(
         [path for path in methods_dir.iterdir() if path.is_dir() and not path.name.startswith(".")],
         key=lambda path: path.name.lower(),
@@ -158,7 +246,8 @@ def build_manifest(
     image_map: Dict[str, Dict[str, object]] = {}
 
     for method_dir in method_dirs:
-        method_id = make_unique_slug(method_dir.name, method_slug_cache)
+        method_id_override, method_label_override, method_metadata, image_metadata = load_method_metadata_file(method_dir)
+        method_id = make_unique_slug(method_id_override or method_dir.name, method_slug_cache)
         image_files = iter_image_files(method_dir, extensions)
 
         preview_key = None
@@ -189,16 +278,26 @@ def build_manifest(
             )
             image_entry["methods"][method_id] = {
                 "path": relative_to_root(image_file, web_root),
-                "metadata": existing_metadata.get(image_key, {}).get(method_id, {}),
+                "metadata": merge_json_objects(
+                    existing_metadata.get(image_key, {}).get(method_id, {}),
+                        image_metadata.get(image_key)
+                        or image_metadata.get(relative_path)
+                        or image_metadata.get(image_file.name)
+                        or {},
+                ),
             }
 
         methods.append(
             MethodRecord(
                 method_id=method_id,
-                label=method_dir.name,
+                label=method_label_override or method_dir.name,
                 relative_dir=relative_to_root(method_dir, web_root),
                 image_count=len(image_files),
                 preview_image_key=preview_key,
+                metadata=merge_json_objects(
+                    existing_method_records.get(method_id, {}),
+                    method_metadata,
+                ),
             )
         )
 
@@ -224,6 +323,7 @@ def build_manifest(
                 "path": method.relative_dir,
                 "imageCount": method.image_count,
                 "previewImageKey": method.preview_image_key,
+                "metadata": method.metadata,
             }
             for method in methods
         ],

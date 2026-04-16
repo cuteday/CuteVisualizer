@@ -24,6 +24,9 @@ const MIN_SIDEBAR_WIDTH = 180;
 const MAX_SIDEBAR_WIDTH = 420;
 const MIN_VIEWER_WIDTH = 320;
 const SIDEBAR_KEYBOARD_STEP = 16;
+const URL_PARAM_IMAGE = 'img';
+const URL_PARAM_METHODS = 'methods';
+const URL_PARAM_MODE = 'mode';
 const SIDEBAR_THUMBNAIL_SIZE = 96;
 const SIDEBAR_THUMBNAIL_CONCURRENCY = 3;
 const COMPARISON_MODES = {
@@ -630,6 +633,8 @@ class CuteVisualizerApp {
       infoDrawerOpen: false,
       infoDrawerImageId: null,
       infoDrawerMethodId: null,
+      methodInfoOpen: true,
+      imageInfoOpen: true,
       imageSearch: '',
       viewport: { ...DEFAULT_VIEWPORT },
       themeColor: this.loadThemeColor(),
@@ -770,10 +775,12 @@ class CuteVisualizerApp {
         this.state.selectedImageId = currentImageExists
           ? this.state.selectedImageId
           : manifest.images[0].id;
+        this.applyShareableStateFromUrl();
         this.ensureValidMethodSelection(true);
       }
 
       this.updateAll();
+      this.syncUrlFromState();
     } catch (error) {
       this.state.loading = false;
       this.state.error = error instanceof Error ? error.message : 'Unknown error.';
@@ -829,6 +836,78 @@ class CuteVisualizerApp {
       return Number.isFinite(parsed) ? parsed : null;
     } catch (_error) {
       return null;
+    }
+  }
+
+  readShareableStateFromUrl() {
+    const url = new URL(window.location.href);
+    const params = url.searchParams;
+    const imageId = params.get(URL_PARAM_IMAGE);
+    const methodsParam = params.get(URL_PARAM_METHODS);
+    const modeParam = params.get(URL_PARAM_MODE);
+
+    return {
+      imageId: imageId || null,
+      selectedMethodIds: methodsParam
+        ? methodsParam.split(',').map((value) => value.trim()).filter(Boolean)
+        : null,
+      comparisonMode: Object.values(COMPARISON_MODES).includes(modeParam) ? modeParam : null,
+    };
+  }
+
+  applyShareableStateFromUrl() {
+    if (!this.state.manifest || !this.state.manifest.images.length) {
+      return;
+    }
+
+    const urlState = this.readShareableStateFromUrl();
+
+    if (
+      urlState.imageId &&
+      this.state.manifest.images.some((image) => image.id === urlState.imageId)
+    ) {
+      this.state.selectedImageId = urlState.imageId;
+    }
+
+    if (Array.isArray(urlState.selectedMethodIds)) {
+      const seen = new Set();
+      this.state.selectedMethodIds = urlState.selectedMethodIds.filter((methodId) => {
+        if (seen.has(methodId)) {
+          return false;
+        }
+        const exists = this.state.manifest.methods.some((method) => method.id === methodId);
+        if (exists) {
+          seen.add(methodId);
+        }
+        return exists;
+      });
+    }
+
+    if (urlState.comparisonMode) {
+      this.state.comparisonMode = urlState.comparisonMode;
+    }
+  }
+
+  syncUrlFromState() {
+    if (!this.state.manifest || !this.state.selectedImageId) {
+      return;
+    }
+
+    const url = new URL(window.location.href);
+    url.searchParams.set(URL_PARAM_IMAGE, this.state.selectedImageId);
+
+    if (this.state.selectedMethodIds.length) {
+      url.searchParams.set(URL_PARAM_METHODS, this.state.selectedMethodIds.join(','));
+    } else {
+      url.searchParams.delete(URL_PARAM_METHODS);
+    }
+
+    url.searchParams.set(URL_PARAM_MODE, this.state.comparisonMode);
+
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (nextUrl !== currentUrl) {
+      window.history.replaceState(null, '', nextUrl);
     }
   }
 
@@ -1256,6 +1335,7 @@ class CuteVisualizerApp {
     this.state.selectedImageId = imageId;
     this.ensureValidMethodSelection(true);
     this.closeInfoDrawer();
+    this.syncUrlFromState();
     this.updateSidebar({ previousImageId });
     this.updateMethodSelector();
     this.updateToolbar();
@@ -1292,6 +1372,7 @@ class CuteVisualizerApp {
 
     this.normalizeSwitchState({ resetIndex: this.state.comparisonMode === COMPARISON_MODES.SWITCH });
     this.normalizeInfoDrawerState();
+    this.syncUrlFromState();
     this.updateMethodSelector();
     this.updateToolbar();
     this.renderGrid();
@@ -1304,6 +1385,7 @@ class CuteVisualizerApp {
 
     this.state.comparisonMode = mode;
     this.normalizeSwitchState();
+    this.syncUrlFromState();
     this.updateModeToggle();
     this.updateToolbar();
     this.renderGrid();
@@ -1464,6 +1546,46 @@ class CuteVisualizerApp {
     return row;
   }
 
+  renderInfoSection(title, metadata, { openByDefault = false, emptyMessage, stateKey = null } = {}) {
+    const details = createElement('details', 'info-drawer-section');
+    const shouldOpen = stateKey ? this.state[stateKey] : openByDefault;
+    if (shouldOpen) {
+      details.open = true;
+    }
+    if (stateKey) {
+      details.addEventListener('toggle', () => {
+        this.state[stateKey] = details.open;
+      });
+    }
+
+    const summary = createElement('summary', 'info-drawer-section-summary');
+    const summaryLabel = createElement('span', 'info-drawer-section-title', title);
+    const summaryIndicator = createElement('span', 'info-drawer-section-indicator', '▾');
+    summary.append(summaryLabel, summaryIndicator);
+
+    const content = createElement('div', 'info-drawer-section-content');
+    const list = createElement('div', 'info-drawer-list');
+    const metadataKeys = metadata && typeof metadata === 'object' ? Object.keys(metadata) : [];
+
+    if (!metadataKeys.length) {
+      list.appendChild(
+        createElement(
+          'div',
+          'info-drawer-empty',
+          emptyMessage ?? 'No metadata available in this section.',
+        ),
+      );
+    } else {
+      metadataKeys.forEach((key) => {
+        list.appendChild(this.renderInfoValue(key, metadata[key]));
+      });
+    }
+
+    content.appendChild(list);
+    details.append(summary, content);
+    return details;
+  }
+
   renderInfoDrawer() {
     if (!this.infoDrawer || !this.infoDrawerBackdrop) {
       return;
@@ -1518,26 +1640,28 @@ class CuteVisualizerApp {
     const recordList = createElement('div', 'info-drawer-list');
     recordList.appendChild(this.renderInfoValue('path', methodRecord.path));
 
+    const methodMetadata =
+      method.metadata && typeof method.metadata === 'object' ? method.metadata : {};
     const metadata =
       methodRecord.metadata && typeof methodRecord.metadata === 'object'
         ? methodRecord.metadata
         : {};
-    const metadataKeys = Object.keys(metadata);
-    if (!metadataKeys.length) {
-      recordList.appendChild(
-        createElement(
-          'div',
-          'info-drawer-empty',
-          'No custom metadata for this method-image pair.',
-        ),
-      );
-    } else {
-      metadataKeys.forEach((key) => {
-        recordList.appendChild(this.renderInfoValue(key, metadata[key]));
-      });
-    }
 
     drawerBody.appendChild(recordList);
+    drawerBody.appendChild(
+      this.renderInfoSection('Image Info', metadata, {
+        openByDefault: true,
+        emptyMessage: 'No custom metadata for this method-image pair.',
+        stateKey: 'imageInfoOpen',
+      }),
+    );
+    drawerBody.appendChild(
+      this.renderInfoSection('Method Info', methodMetadata, {
+        openByDefault: true,
+        emptyMessage: 'No method-level metadata for this method.',
+        stateKey: 'methodInfoOpen',
+      }),
+    );
     this.infoDrawer.append(drawerHeader, drawerIdentity, drawerBody);
   }
 
