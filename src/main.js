@@ -27,11 +27,48 @@ const SIDEBAR_KEYBOARD_STEP = 16;
 const URL_PARAM_IMAGE = 'img';
 const URL_PARAM_METHODS = 'methods';
 const URL_PARAM_MODE = 'mode';
+const URL_PARAM_CROP = 'crop';
 const SIDEBAR_THUMBNAIL_SIZE = 96;
 const SIDEBAR_THUMBNAIL_CONCURRENCY = 3;
+const MAX_SHAREABLE_ZOOM = 30;
+const VIEWPORT_URL_PRECISION = 4;
+const DISPLAY_FLOAT_PRECISION = 5;
 const COMPARISON_MODES = {
   GRIDS: 'grids',
   SWITCH: 'switch',
+  DATA: 'data',
+};
+const NEXT_METRIC_COLOR_MODE = {
+  off: 'lower',
+  lower: 'higher',
+  higher: 'off',
+};
+const METRIC_COLOR_MODE_META = {
+  off: {
+    description: 'Metric coloring is off. Click to activate lower-is-better.',
+    svg: `
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M8 1.75C10.35 4.55 11.8 6.55 11.8 8.8A3.8 3.8 0 1 1 4.2 8.8C4.2 6.55 5.65 4.55 8 1.75Z" fill="currentColor" />
+        <path d="M6.2 9.35c.6.65 1.25 1 1.95 1.05.7.05 1.35-.18 1.95-.7" fill="none" stroke="rgba(255,255,255,0.85)" stroke-width="1.4" stroke-linecap="round" />
+      </svg>
+    `,
+  },
+  lower: {
+    description: 'Lower is better. Click to switch to higher-is-better.',
+    svg: `
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M8 13.7 2.65 8.35h3.15V2.25h4.4v6.1h3.15L8 13.7Z" fill="currentColor" />
+      </svg>
+    `,
+  },
+  higher: {
+    description: 'Higher is better. Click to turn metric coloring off.',
+    svg: `
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M8 2.3 13.35 7.65H10.2v6.1H5.8v-6.1H2.65L8 2.3Z" fill="currentColor" />
+      </svg>
+    `,
+  },
 };
 
 function createElement(tagName, className, textContent) {
@@ -70,6 +107,83 @@ function formatTimestamp(isoString) {
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
+}
+
+function roundToPrecision(value, precision) {
+  const factor = 10 ** precision;
+  return Math.round(value * factor) / factor;
+}
+
+function viewportDiffersFromDefault(viewport) {
+  if (!viewport) {
+    return false;
+  }
+
+  return (
+    Math.abs(viewport.zoom - DEFAULT_VIEWPORT.zoom) > 0.0001 ||
+    Math.abs(viewport.centerX - DEFAULT_VIEWPORT.centerX) > 0.0001 ||
+    Math.abs(viewport.centerY - DEFAULT_VIEWPORT.centerY) > 0.0001
+  );
+}
+
+function serializeViewportForUrl(viewport) {
+  return [viewport.zoom, viewport.centerX, viewport.centerY]
+    .map((value) => String(roundToPrecision(value, VIEWPORT_URL_PRECISION)))
+    .join(',');
+}
+
+function parseViewportFromUrl(rawValue) {
+  if (!rawValue) {
+    return null;
+  }
+
+  const parts = rawValue
+    .split(',')
+    .map((part) => Number.parseFloat(part.trim()))
+    .filter((value) => Number.isFinite(value));
+  if (parts.length !== 3) {
+    return null;
+  }
+
+  const [zoom, centerX, centerY] = parts;
+  return {
+    zoom: clamp(zoom, DEFAULT_VIEWPORT.zoom, MAX_SHAREABLE_ZOOM),
+    centerX: clamp(centerX, 0, 1),
+    centerY: clamp(centerY, 0, 1),
+  };
+}
+
+function formatDisplayValue(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Number.isInteger(value) ? value : roundToPrecision(value, DISPLAY_FLOAT_PRECISION);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => formatDisplayValue(item));
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nestedValue]) => [key, formatDisplayValue(nestedValue)]),
+    );
+  }
+
+  return value;
+}
+
+function hasOwn(object, key) {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+function getMetricColorModeMeta(mode) {
+  return METRIC_COLOR_MODE_META[mode] ?? METRIC_COLOR_MODE_META.off;
+}
+
+function createMetricColorModeIcon(mode) {
+  const icon = createElement('span', 'data-table-row-control-icon');
+  icon.setAttribute('aria-hidden', 'true');
+  icon.innerHTML = getMetricColorModeMeta(mode).svg.trim();
+  return icon;
 }
 
 function getImageMethodIds(image) {
@@ -610,6 +724,8 @@ class CuteVisualizerApp {
   constructor(root) {
     this.root = root;
     this.gridView = null;
+    this.urlSyncFrame = 0;
+    this.activeMethodTooltipTarget = null;
     this.sidebarWidth = this.loadSidebarWidth();
     this.isResizingSidebar = false;
     this.themePresetSelect = null;
@@ -635,6 +751,7 @@ class CuteVisualizerApp {
       infoDrawerMethodId: null,
       methodInfoOpen: true,
       imageInfoOpen: true,
+      metricColorModes: {},
       imageSearch: '',
       viewport: { ...DEFAULT_VIEWPORT },
       themeColor: this.loadThemeColor(),
@@ -645,6 +762,7 @@ class CuteVisualizerApp {
     this.handleSidebarResizeEnd = this.handleSidebarResizeEnd.bind(this);
     this.handleSidebarResizeKeydown = this.handleSidebarResizeKeydown.bind(this);
     this.handleWindowResize = this.handleWindowResize.bind(this);
+    this.handleMethodListScroll = this.handleMethodListScroll.bind(this);
     this.handleGlobalKeydown = this.handleGlobalKeydown.bind(this);
     this.handleSidebarThumbnailIntersection = this.handleSidebarThumbnailIntersection.bind(this);
 
@@ -718,6 +836,7 @@ class CuteVisualizerApp {
           <div class="footer-controls" id="footerControls"></div>
         </footer>
       </div>
+      <div class="method-floating-tooltip" id="methodTooltip" aria-hidden="true"></div>
     `;
 
     this.methodsList = document.getElementById('methodsList');
@@ -733,6 +852,7 @@ class CuteVisualizerApp {
     this.comparisonMount = document.getElementById('comparisonMount');
     this.infoDrawer = document.getElementById('infoDrawer');
     this.infoDrawerBackdrop = document.getElementById('infoDrawerBackdrop');
+    this.methodTooltip = document.getElementById('methodTooltip');
     this.footerBrand = document.getElementById('footerBrand');
     this.footerStatus = document.getElementById('footerStatus');
     this.footerControls = document.getElementById('footerControls');
@@ -746,6 +866,7 @@ class CuteVisualizerApp {
     this.sidebarResizer.addEventListener('mousedown', this.handleSidebarResizeStart);
     this.sidebarResizer.addEventListener('keydown', this.handleSidebarResizeKeydown);
     this.infoDrawerBackdrop.addEventListener('click', () => this.closeInfoDrawer());
+    this.methodsList.addEventListener('scroll', this.handleMethodListScroll);
     window.addEventListener('resize', this.handleWindowResize);
 
     if (this.sidebarWidth !== null) {
@@ -775,8 +896,11 @@ class CuteVisualizerApp {
         this.state.selectedImageId = currentImageExists
           ? this.state.selectedImageId
           : manifest.images[0].id;
-        this.applyShareableStateFromUrl();
+        const urlState = this.applyShareableStateFromUrl();
         this.ensureValidMethodSelection(true);
+        if (urlState.viewport) {
+          this.state.viewport = urlState.viewport;
+        }
       }
 
       this.updateAll();
@@ -845,6 +969,7 @@ class CuteVisualizerApp {
     const imageId = params.get(URL_PARAM_IMAGE);
     const methodsParam = params.get(URL_PARAM_METHODS);
     const modeParam = params.get(URL_PARAM_MODE);
+    const cropParam = params.get(URL_PARAM_CROP);
 
     return {
       imageId: imageId || null,
@@ -852,12 +977,13 @@ class CuteVisualizerApp {
         ? methodsParam.split(',').map((value) => value.trim()).filter(Boolean)
         : null,
       comparisonMode: Object.values(COMPARISON_MODES).includes(modeParam) ? modeParam : null,
+      viewport: parseViewportFromUrl(cropParam),
     };
   }
 
   applyShareableStateFromUrl() {
     if (!this.state.manifest || !this.state.manifest.images.length) {
-      return;
+      return { viewport: null };
     }
 
     const urlState = this.readShareableStateFromUrl();
@@ -886,11 +1012,38 @@ class CuteVisualizerApp {
     if (urlState.comparisonMode) {
       this.state.comparisonMode = urlState.comparisonMode;
     }
+
+    return urlState;
+  }
+
+  scheduleUrlSync() {
+    if (!this.state.manifest || !this.state.selectedImageId) {
+      return;
+    }
+
+    if (this.urlSyncFrame) {
+      return;
+    }
+
+    if (typeof window.requestAnimationFrame !== 'function') {
+      this.syncUrlFromState();
+      return;
+    }
+
+    this.urlSyncFrame = window.requestAnimationFrame(() => {
+      this.urlSyncFrame = 0;
+      this.syncUrlFromState();
+    });
   }
 
   syncUrlFromState() {
     if (!this.state.manifest || !this.state.selectedImageId) {
       return;
+    }
+
+    if (this.urlSyncFrame && typeof window.cancelAnimationFrame === 'function') {
+      window.cancelAnimationFrame(this.urlSyncFrame);
+      this.urlSyncFrame = 0;
     }
 
     const url = new URL(window.location.href);
@@ -903,6 +1056,12 @@ class CuteVisualizerApp {
     }
 
     url.searchParams.set(URL_PARAM_MODE, this.state.comparisonMode);
+
+    if (viewportDiffersFromDefault(this.state.viewport)) {
+      url.searchParams.set(URL_PARAM_CROP, serializeViewportForUrl(this.state.viewport));
+    } else {
+      url.searchParams.delete(URL_PARAM_CROP);
+    }
 
     const nextUrl = `${url.pathname}${url.search}${url.hash}`;
     const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
@@ -1079,6 +1238,72 @@ class CuteVisualizerApp {
     } else {
       this.updateSidebarResizeAria(this.getCurrentSidebarWidth());
     }
+
+    if (this.activeMethodTooltipTarget) {
+      this.positionMethodTooltip();
+    }
+  }
+
+  handleMethodListScroll() {
+    this.hideMethodTooltip();
+  }
+
+  showMethodTooltip(target, label) {
+    if (!this.methodTooltip || !target || !label) {
+      return;
+    }
+
+    this.activeMethodTooltipTarget = target;
+    this.methodTooltip.textContent = label;
+    this.methodTooltip.classList.add('is-visible');
+    this.methodTooltip.setAttribute('aria-hidden', 'false');
+    this.positionMethodTooltip();
+  }
+
+  positionMethodTooltip() {
+    if (!this.methodTooltip || !this.activeMethodTooltipTarget) {
+      return;
+    }
+
+    if (!this.activeMethodTooltipTarget.isConnected) {
+      this.hideMethodTooltip();
+      return;
+    }
+
+    const targetBounds = this.activeMethodTooltipTarget.getBoundingClientRect();
+    const viewportPadding = 8;
+    const gap = 8;
+    const tooltipBounds = this.methodTooltip.getBoundingClientRect();
+    let left = targetBounds.left + targetBounds.width / 2 - tooltipBounds.width / 2;
+    left = clamp(left, viewportPadding, window.innerWidth - tooltipBounds.width - viewportPadding);
+
+    let top = targetBounds.top - tooltipBounds.height - gap;
+    let placeBelow = false;
+    if (top < viewportPadding) {
+      top = Math.min(
+        targetBounds.bottom + gap,
+        window.innerHeight - tooltipBounds.height - viewportPadding,
+      );
+      placeBelow = true;
+    }
+
+    this.methodTooltip.style.left = `${Math.round(left)}px`;
+    this.methodTooltip.style.top = `${Math.round(top)}px`;
+    this.methodTooltip.classList.toggle('is-below', placeBelow);
+  }
+
+  hideMethodTooltip(target = null) {
+    if (target && target !== this.activeMethodTooltipTarget) {
+      return;
+    }
+
+    this.activeMethodTooltipTarget = null;
+    if (!this.methodTooltip) {
+      return;
+    }
+
+    this.methodTooltip.classList.remove('is-visible', 'is-below');
+    this.methodTooltip.setAttribute('aria-hidden', 'true');
   }
 
   applyTheme() {
@@ -1402,6 +1627,7 @@ class CuteVisualizerApp {
     [
       { id: COMPARISON_MODES.GRIDS, label: 'Grids' },
       { id: COMPARISON_MODES.SWITCH, label: 'Switch' },
+      { id: COMPARISON_MODES.DATA, label: 'Data' },
     ].forEach((mode) => {
       const modeButton = createElement('button', 'toolbar-mode-button', mode.label);
       modeButton.type = 'button';
@@ -1409,7 +1635,9 @@ class CuteVisualizerApp {
       modeButton.title =
         mode.id === COMPARISON_MODES.GRIDS
           ? 'Show all selected methods in a comparison grid'
-          : 'Show one selected method at a time and cycle with Space';
+          : mode.id === COMPARISON_MODES.SWITCH
+            ? 'Show one selected method at a time and cycle with Space'
+            : 'Show selected-method metadata tables for the current image';
       if (this.state.comparisonMode === mode.id) {
         modeButton.classList.add('is-active');
       }
@@ -1532,18 +1760,285 @@ class CuteVisualizerApp {
     const row = createElement('div', 'info-drawer-row');
     const keyLabel = createElement('div', 'info-drawer-key', key);
     row.appendChild(keyLabel);
+    row.appendChild(
+      this.createDisplayValueNode(value, {
+        tagName: 'div',
+        scalarClass: 'info-drawer-value',
+        jsonClass: 'info-drawer-json',
+        missingClass: 'info-drawer-value is-missing',
+      }),
+    );
+    return row;
+  }
 
-    if (value !== null && typeof value === 'object') {
-      const pre = createElement('pre', 'info-drawer-json');
-      pre.textContent = JSON.stringify(value, null, 2);
-      row.appendChild(pre);
-      return row;
+  createDisplayValueNode(
+    value,
+    { tagName = 'span', scalarClass, jsonClass, missingClass, missingText = 'N/A' } = {},
+  ) {
+    if (value === undefined) {
+      const missingNode = createElement(tagName, missingClass ?? scalarClass, missingText);
+      missingNode.title = missingText;
+      return missingNode;
     }
 
-    const valueLabel = createElement('div', 'info-drawer-value', String(value));
-    valueLabel.title = String(value);
-    row.appendChild(valueLabel);
-    return row;
+    const formattedValue = formatDisplayValue(value);
+    if (formattedValue !== null && typeof formattedValue === 'object') {
+      const pre = createElement('pre', jsonClass);
+      pre.textContent = JSON.stringify(formattedValue, null, 2);
+      return pre;
+    }
+
+    const className = [scalarClass, typeof formattedValue === 'number' ? 'is-numeric' : '']
+      .filter(Boolean)
+      .join(' ');
+    const text = String(formattedValue);
+    const valueNode = createElement(tagName, className, text);
+    valueNode.title = text;
+    return valueNode;
+  }
+
+  getMethodMetadata(method) {
+    return method && method.metadata && typeof method.metadata === 'object' ? method.metadata : {};
+  }
+
+  collectMetadataKeys(methods, resolveMetadata) {
+    const seen = new Set();
+    methods.forEach((method) => {
+      const metadata = resolveMetadata(method);
+      if (!metadata || typeof metadata !== 'object') {
+        return;
+      }
+
+      Object.keys(metadata).forEach((key) => {
+        if (!seen.has(key)) {
+          seen.add(key);
+        }
+      });
+    });
+
+    return [...seen];
+  }
+
+  getMetricColorModeKey(sectionId, attributeKey) {
+    return `${sectionId}:${attributeKey}`;
+  }
+
+  getMetricColorMode(sectionId, attributeKey) {
+    const key = this.getMetricColorModeKey(sectionId, attributeKey);
+    return this.state.metricColorModes[key] ?? 'off';
+  }
+
+  cycleMetricColorMode(sectionId, attributeKey) {
+    const key = this.getMetricColorModeKey(sectionId, attributeKey);
+    const currentMode = this.state.metricColorModes[key] ?? 'off';
+    const nextMode = NEXT_METRIC_COLOR_MODE[currentMode] ?? 'off';
+
+    if (nextMode === 'off') {
+      delete this.state.metricColorModes[key];
+    } else {
+      this.state.metricColorModes[key] = nextMode;
+    }
+
+    this.renderGrid();
+  }
+
+  getMetricRowStats(methods, resolveMetadata, attributeKey) {
+    let numericCount = 0;
+    let min = Number.POSITIVE_INFINITY;
+    let max = Number.NEGATIVE_INFINITY;
+    let hasFractionalValue = false;
+
+    methods.forEach((method) => {
+      const metadata = resolveMetadata(method);
+      const value =
+        metadata && typeof metadata === 'object' && hasOwn(metadata, attributeKey)
+          ? metadata[attributeKey]
+          : undefined;
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return;
+      }
+
+      numericCount += 1;
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+      hasFractionalValue = hasFractionalValue || !Number.isInteger(value);
+    });
+
+    return {
+      numericCount,
+      min: numericCount ? min : null,
+      max: numericCount ? max : null,
+      isColorizable: numericCount > 0 && hasFractionalValue,
+    };
+  }
+
+  getMetricColorStyle(value, rowStats, colorMode) {
+    if (
+      colorMode === 'off' ||
+      typeof value !== 'number' ||
+      !Number.isFinite(value) ||
+      rowStats.numericCount < 2 ||
+      rowStats.min === null ||
+      rowStats.max === null
+    ) {
+      return null;
+    }
+
+    const range = rowStats.max - rowStats.min;
+    const normalized =
+      range <= 1e-12
+        ? 0.5
+        : colorMode === 'lower'
+          ? (value - rowStats.min) / range
+          : (rowStats.max - value) / range;
+    const clamped = clamp(normalized, 0, 1);
+    const hue = roundToPrecision(135 * (1 - clamped), 1);
+    const lightness = roundToPrecision(38 + clamped * 7, 1);
+
+    return {
+      color: `hsl(${hue} 66% ${lightness}%)`,
+    };
+  }
+
+  renderDataTableSection(
+    sectionId,
+    title,
+    subtitle,
+    currentImage,
+    methods,
+    resolveMetadata,
+    emptyMessage,
+  ) {
+    const section = createElement('section', 'data-section');
+    const header = createElement('div', 'data-section-header');
+    const heading = createElement('div', 'data-section-title', title);
+    const summary = createElement('div', 'data-section-subtitle', subtitle);
+    header.append(heading, summary);
+    section.appendChild(header);
+
+    const keys = this.collectMetadataKeys(methods, resolveMetadata);
+    if (!keys.length) {
+      section.appendChild(createElement('div', 'data-section-empty', emptyMessage));
+      return section;
+    }
+
+    const scroll = createElement('div', 'data-table-scroll');
+    const table = createElement('table', 'data-table');
+    const head = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    const attributeHead = createElement('th', 'data-table-attribute-head', 'Attribute');
+    attributeHead.scope = 'col';
+    headRow.appendChild(attributeHead);
+
+    methods.forEach((method) => {
+      const methodHead = createElement('th', 'data-table-method-head');
+      methodHead.scope = 'col';
+      const methodButton = createElement('button', 'data-table-method-button', method.label);
+      methodButton.type = 'button';
+      methodButton.title = `Show info for ${method.label}`;
+      methodButton.setAttribute('aria-label', `Show info for ${method.label}`);
+      methodButton.addEventListener('click', () => this.openInfoDrawer(currentImage.id, method.id));
+      methodHead.appendChild(methodButton);
+      headRow.appendChild(methodHead);
+    });
+    head.appendChild(headRow);
+
+    const body = document.createElement('tbody');
+    keys.forEach((key) => {
+      const rowStats = this.getMetricRowStats(methods, resolveMetadata, key);
+      const colorMode = rowStats.isColorizable ? this.getMetricColorMode(sectionId, key) : 'off';
+      const row = document.createElement('tr');
+      const rowKey = createElement('th', 'data-table-row-key');
+      rowKey.scope = 'row';
+      const rowHeader = createElement('div', 'data-table-row-header');
+      const rowLabel = createElement('span', 'data-table-row-label', key);
+      rowHeader.appendChild(rowLabel);
+
+      if (rowStats.isColorizable) {
+        const controlMeta = getMetricColorModeMeta(colorMode);
+        const control = createElement(
+          'button',
+          `data-table-row-control${colorMode !== 'off' ? ` is-${colorMode}` : ''}`,
+        );
+        control.type = 'button';
+        control.title = controlMeta.description;
+        control.setAttribute('aria-pressed', String(colorMode !== 'off'));
+        control.setAttribute('aria-label', `${key}. ${controlMeta.description}`);
+        control.appendChild(createMetricColorModeIcon(colorMode));
+        control.addEventListener('click', () => this.cycleMetricColorMode(sectionId, key));
+        rowHeader.appendChild(control);
+      }
+
+      rowKey.appendChild(rowHeader);
+      row.appendChild(rowKey);
+
+      methods.forEach((method) => {
+        const cell = createElement('td', 'data-table-cell');
+        const metadata = resolveMetadata(method);
+        const value =
+          metadata && typeof metadata === 'object' && hasOwn(metadata, key) ? metadata[key] : undefined;
+        if (value === undefined) {
+          cell.classList.add('is-missing');
+        }
+        const valueNode = this.createDisplayValueNode(value, {
+          tagName: 'div',
+          scalarClass: 'data-table-value',
+          jsonClass: 'data-table-json',
+          missingClass: 'data-table-value is-missing',
+        });
+        const colorStyle = this.getMetricColorStyle(value, rowStats, colorMode);
+        if (colorStyle && valueNode instanceof HTMLElement) {
+          valueNode.classList.add('is-colorized');
+          valueNode.style.color = colorStyle.color;
+        }
+        cell.appendChild(valueNode);
+        row.appendChild(cell);
+      });
+
+      body.appendChild(row);
+    });
+
+    table.append(head, body);
+    scroll.appendChild(table);
+    section.appendChild(scroll);
+    return section;
+  }
+
+  renderDataView(currentImage, methods) {
+    clearElement(this.comparisonMount);
+
+    if (!methods.length) {
+      const emptyState = createElement('div', 'comparison-empty');
+      emptyState.innerHTML = `
+        <h3>Select at least one method</h3>
+        <p>Use the method buttons above to choose the outputs you want to inspect in Data mode.</p>
+      `;
+      this.comparisonMount.appendChild(emptyState);
+      return;
+    }
+
+    const dataView = createElement('div', 'data-view');
+    dataView.append(
+      this.renderDataTableSection(
+        'image',
+        'Image Info',
+        'Metadata recorded for the current image-method pair.',
+        currentImage,
+        methods,
+        (method) => getImageMethodRecord(currentImage, method.id)?.metadata ?? {},
+        'No custom metadata exists for the current image across the selected methods.',
+      ),
+      this.renderDataTableSection(
+        'method',
+        'Method Info',
+        'Method-level metadata shared across images.',
+        currentImage,
+        methods,
+        (method) => this.getMethodMetadata(method),
+        'No method-level metadata exists for the selected methods.',
+      ),
+    );
+    this.comparisonMount.appendChild(dataView);
   }
 
   renderInfoSection(title, metadata, { openByDefault = false, emptyMessage, stateKey = null } = {}) {
@@ -1674,6 +2169,7 @@ class CuteVisualizerApp {
     }
 
     this.updateToolbarStats();
+    this.scheduleUrlSync();
   }
 
   updateFooter() {
@@ -1740,6 +2236,7 @@ class CuteVisualizerApp {
   }
 
   updateMethodSelector() {
+    this.hideMethodTooltip();
     clearElement(this.methodsList);
 
     const manifest = this.state.manifest;
@@ -1771,8 +2268,7 @@ class CuteVisualizerApp {
       button.type = 'button';
       button.disabled = shouldDisable;
       button.setAttribute('aria-pressed', String(isSelected));
-      button.title = method.label;
-      button.setAttribute('aria-label', method.label);
+      button.setAttribute('aria-label', `${method.label}. ${method.imageCount} indexed images.`);
       if (isSelected) {
         button.classList.add('is-selected');
       }
@@ -1783,15 +2279,21 @@ class CuteVisualizerApp {
         button.classList.add('is-limit-blocked');
       }
 
+      const titleRow = createElement('span', 'method-option-title-row');
       const title = createElement('span', 'method-option-title', method.label);
-      const subtitle = createElement(
-        'span',
-        'method-option-subtitle',
-        isAvailable ? `${method.imageCount} indexed images` : 'No image for current selection',
-      );
+      const badge = createElement('span', 'method-option-badge', String(method.imageCount));
+      badge.setAttribute('aria-hidden', 'true');
 
-      button.append(title, subtitle);
-      button.addEventListener('click', () => this.toggleMethod(method.id));
+      titleRow.append(title, badge);
+      button.append(titleRow);
+      button.addEventListener('mouseenter', () => this.showMethodTooltip(button, method.label));
+      button.addEventListener('mouseleave', () => this.hideMethodTooltip(button));
+      button.addEventListener('focus', () => this.showMethodTooltip(button, method.label));
+      button.addEventListener('blur', () => this.hideMethodTooltip(button));
+      button.addEventListener('click', () => {
+        this.hideMethodTooltip(button);
+        this.toggleMethod(method.id);
+      });
       this.methodsList.appendChild(button);
     });
   }
@@ -1886,7 +2388,7 @@ class CuteVisualizerApp {
     const rightCluster = createElement('div', 'toolbar-side');
 
     const actionCluster = createElement('div', 'toolbar-actions');
-    const previousButton = createElement('button', 'secondary-button', 'Previous');
+    const previousButton = createElement('button', 'secondary-button', 'Prev');
     previousButton.type = 'button';
     previousButton.disabled = currentIndex <= 0;
     previousButton.addEventListener('click', () => this.moveImage(-1));
@@ -1896,11 +2398,13 @@ class CuteVisualizerApp {
     nextButton.disabled = currentIndex === -1 || currentIndex >= navList.length - 1;
     nextButton.addEventListener('click', () => this.moveImage(1));
 
-    const resetButton = createElement('button', 'primary-button', 'Reset View');
-    resetButton.type = 'button';
-    resetButton.addEventListener('click', () => this.setViewport({ ...DEFAULT_VIEWPORT }));
-
-    actionCluster.append(previousButton, nextButton, resetButton);
+    actionCluster.append(previousButton, nextButton);
+    if (this.state.comparisonMode !== COMPARISON_MODES.DATA) {
+      const resetButton = createElement('button', 'primary-button', 'Reset');
+      resetButton.type = 'button';
+      resetButton.addEventListener('click', () => this.setViewport({ ...DEFAULT_VIEWPORT }));
+      actionCluster.append(resetButton);
+    }
 
     const infoCluster = createElement('div', 'toolbar-stats');
     this.toolbarZoomStat = createElement('span', 'toolbar-stat');
@@ -1922,11 +2426,16 @@ class CuteVisualizerApp {
     const currentIndex = navList.findIndex((image) => image.id === this.state.selectedImageId);
     const availableSelectedMethods = this.getAvailableSelectedMethods();
 
-    this.toolbarZoomStat.textContent = `${Math.round(this.state.viewport.zoom * 100)}% zoom`;
+    this.toolbarZoomStat.textContent =
+      this.state.comparisonMode === COMPARISON_MODES.DATA
+        ? 'Data view'
+        : `${Math.round(this.state.viewport.zoom * 100)}% zoom`;
     this.toolbarPanelStat.textContent =
       this.state.comparisonMode === COMPARISON_MODES.SWITCH
         ? `Model ${availableSelectedMethods.length ? this.state.activeSwitchIndex + 1 : 0}/${availableSelectedMethods.length}`
-        : `${availableSelectedMethods.length} panel${availableSelectedMethods.length === 1 ? '' : 's'}`;
+        : this.state.comparisonMode === COMPARISON_MODES.DATA
+          ? `${availableSelectedMethods.length} method${availableSelectedMethods.length === 1 ? '' : 's'}`
+          : `${availableSelectedMethods.length} panel${availableSelectedMethods.length === 1 ? '' : 's'}`;
     this.toolbarImageStat.textContent =
       currentIndex === -1 ? 'Image 0/0' : `Image ${currentIndex + 1}/${navList.length}`;
   }
@@ -1979,6 +2488,15 @@ class CuteVisualizerApp {
     }
 
     const selectedMethods = this.getAvailableSelectedMethods();
+    if (this.state.comparisonMode === COMPARISON_MODES.DATA) {
+      if (this.gridView) {
+        this.gridView.destroy();
+        this.gridView = null;
+      }
+      this.renderDataView(currentImage, selectedMethods);
+      return;
+    }
+
     const isSwitchMode = this.state.comparisonMode === COMPARISON_MODES.SWITCH;
     const renderedMethods =
       isSwitchMode && selectedMethods.length
