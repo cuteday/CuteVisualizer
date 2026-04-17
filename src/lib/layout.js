@@ -15,5 +15,11 @@ export function getGridLayout(count) {
     return { columns: 3, rows: 2 };
   }
 
-  return { columns: 3, rows: 3 };
+  if (count <= 9) {
+    return { columns: 3, rows: 3 };
+  }
+
+  const columns = Math.ceil(Math.sqrt(count));
+  const rows = Math.ceil(count / columns);
+  return { columns, rows };
 }

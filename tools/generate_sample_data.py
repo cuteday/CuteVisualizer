@@ -2,19 +2,22 @@
 """Generate demo PNG folders for CuteVisualizer.
 
 The sample output is intentionally small, cute, and safe to overwrite because
-it only touches method folders whose names start with ``demo-``.
+it only touches method folders whose names start with ``demo-``. Each demo
+method also gets a matching ``metadata.json`` so the static demo site can
+exercise method-level and image-level metadata in CI.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import pathlib
 import shutil
 import struct
 import zlib
 from dataclasses import dataclass
-from typing import Iterable, Tuple
+from typing import Iterable, Sequence, Tuple
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -91,6 +94,7 @@ SCENES = (
         seed=61,
     ),
 )
+SCENES_BY_KEY = {scene.key: scene for scene in SCENES}
 
 
 METHODS = (
@@ -114,6 +118,143 @@ MISSING_BY_METHOD = {
     "demo-cotton-matte": {"portraits/tea-room.png"},
     "demo-silver-detail": {"details/petal-lantern.png"},
 }
+
+METHOD_MOODS = (
+    "calm but caffeinated",
+    "gently overachieving",
+    "softly dramatic",
+    "politely sparkly",
+    "surprisingly cozy",
+)
+
+FAVORITE_SNACKS = (
+    "strawberry mochi",
+    "cloud cookies",
+    "tiny madeleines",
+    "matcha marshmallows",
+    "peach macarons",
+)
+
+MASCOTS = (
+    "petal ferret",
+    "teacup axolotl",
+    "velvet moth",
+    "sleepy bunny",
+    "mint dragonlet",
+)
+
+PALETTES = (
+    "rosewater dusk",
+    "mint parfait",
+    "violet milkshake",
+    "amber honey",
+    "moonlit porcelain",
+)
+
+CATCHPHRASES = (
+    "less crunch, more blush",
+    "tiny pixels, enormous feelings",
+    "every lantern deserves a glow-up",
+    "soft focus, serious ambition",
+    "cozy first, benchmarks second",
+)
+
+SCENE_NOTES = (
+    "the petals behaved today",
+    "one lantern refused to be subtle",
+    "the tea steam looked suspiciously confident",
+    "the bridge insisted on extra sparkle",
+    "the garden path is serving cinema",
+)
+
+SPARKLE_STRATEGIES = (
+    "whispered glitter",
+    "disciplined shimmer",
+    "maximalist twinkle",
+    "tea-steam sparkle",
+    "lantern-side bloom",
+)
+
+CLOUD_TYPES = (
+    "cotton ribbon",
+    "lazy parfait",
+    "violet puff",
+    "peach drizzle",
+    "marshmallow shelf",
+)
+
+LANTERN_GOSSIP = (
+    "claims it invented ambiance",
+    "still mad about last Tuesday",
+    "refuses to blink on cue",
+    "secretly loves overexposure",
+    "thinks bloom solves everything",
+)
+
+
+def stable_hash(*parts: str) -> int:
+    payload = "|".join(parts).encode("utf-8")
+    return zlib.crc32(payload) & 0xFFFFFFFF
+
+
+def stable_unit(*parts: str) -> float:
+    return stable_hash(*parts) / 0xFFFFFFFF
+
+
+def stable_choice(options: Sequence[str], *parts: str) -> str:
+    return options[stable_hash(*parts) % len(options)]
+
+
+def format_method_label(folder: str) -> str:
+    words = folder.removeprefix("demo-").replace("-", " ").split()
+    return " ".join(word.capitalize() for word in words)
+
+
+def build_method_metadata(method: MethodSpec, method_index: int) -> dict[str, object]:
+    method_key = method.folder
+    return {
+        "Render Mood": stable_choice(METHOD_MOODS, method_key, "mood"),
+        "Favorite Snack": stable_choice(FAVORITE_SNACKS, method_key, "snack"),
+        "Mascot": stable_choice(MASCOTS, method_key, "mascot"),
+        "Palette": stable_choice(PALETTES, method_key, "palette"),
+        "Checkpoint": f"demo://checkpoints/{method.folder}/snapshot-{method_index + 1:03d}.pkl",
+        "Sparkle Budget": round(0.08 + stable_unit(method_key, "sparkle-budget") * 0.42, 5),
+        "Tea Temperature (C)": round(58.0 + stable_unit(method_key, "tea-temp") * 18.0, 2),
+        "Studio Notes": {
+            "Catchphrase": stable_choice(CATCHPHRASES, method_key, "catchphrase"),
+            "Signature": f"{stable_choice(MASCOTS, method_key, 'signature')} approved",
+        },
+    }
+
+
+def build_scene_metadata(scene: SceneSpec, method: MethodSpec) -> dict[str, object]:
+    method_key = method.folder
+    scene_key = scene.key
+    return {
+        "MSE (Full Image)": round(0.0007 + stable_unit(method_key, scene_key, "mse") * 0.0048, 5),
+        "LPIPS (Full Image)": round(0.08 + stable_unit(method_key, scene_key, "lpips") * 0.28, 5),
+        "Cozy Confidence": round(0.72 + stable_unit(method_key, scene_key, "confidence") * 0.24, 5),
+        "Tea Steam Balance": round(0.11 + stable_unit(method_key, scene_key, "steam") * 0.77, 5),
+        "Bunny Witnesses": 1 + stable_hash(method_key, scene_key, "bunnies") % 7,
+        "Mood Note": stable_choice(SCENE_NOTES, method_key, scene_key, "note"),
+        "Sparkle Strategy": stable_choice(SPARKLE_STRATEGIES, method_key, scene_key, "sparkle-mode"),
+        "Tiny Drama": {
+            "Clouds": stable_choice(CLOUD_TYPES, method_key, scene_key, "clouds"),
+            "Lantern Gossip": stable_choice(LANTERN_GOSSIP, method_key, scene_key, "gossip"),
+        },
+    }
+
+
+def write_metadata(method_dir: pathlib.Path, method: MethodSpec, method_index: int, scene_keys: Sequence[str]) -> None:
+    payload: dict[str, object] = {
+        "label": format_method_label(method.folder),
+        "method": build_method_metadata(method, method_index),
+    }
+    for scene_key in scene_keys:
+        payload[scene_key] = build_scene_metadata(SCENES_BY_KEY[scene_key], method)
+
+    metadata_path = method_dir / "metadata.json"
+    metadata_path.write_text(f"{json.dumps(payload, indent=2)}\n", encoding="utf-8")
 
 
 def clamp_channel(value: float) -> int:
@@ -226,17 +367,21 @@ def main() -> int:
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    for method in METHODS:
+    for method_index, method in enumerate(METHODS):
         method_dir = args.output_dir / method.folder
         if method_dir.exists():
             shutil.rmtree(method_dir)
         method_dir.mkdir(parents=True, exist_ok=True)
 
         missing = MISSING_BY_METHOD.get(method.folder, set())
+        generated_scene_keys = []
         for scene in SCENES:
             if scene.key in missing:
                 continue
             render_scene(scene, method, method_dir / scene.key)
+            generated_scene_keys.append(scene.key)
+
+        write_metadata(method_dir, method, method_index, generated_scene_keys)
 
     print(
         f"Generated {len(METHODS)} demo method folder(s) with {len(SCENES)} base image key(s) in {args.output_dir}"

@@ -206,10 +206,6 @@ code {
   color: var(--text-secondary);
 }
 
-.method-option.is-limit-blocked {
-  opacity: 0.72;
-}
-
 .method-option-title-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -265,7 +261,7 @@ code {
   color: color-mix(in srgb, var(--text-secondary) 76%, white 24%);
 }
 
-.method-floating-tooltip {
+.floating-tooltip {
   position: fixed;
   top: 0;
   left: 0;
@@ -280,7 +276,7 @@ code {
   font-weight: 600;
   line-height: 1.35;
   color: var(--text-primary);
-  white-space: normal;
+  white-space: pre-line;
   word-break: break-word;
   opacity: 0;
   pointer-events: none;
@@ -290,7 +286,7 @@ code {
     transform 120ms ease;
 }
 
-.method-floating-tooltip::after {
+.floating-tooltip::after {
   content: '';
   position: absolute;
   left: 50%;
@@ -303,16 +299,16 @@ code {
   transform: translate(-50%, -50%) rotate(45deg);
 }
 
-.method-floating-tooltip.is-visible {
+.floating-tooltip.is-visible {
   opacity: 1;
   transform: translateY(0);
 }
 
-.method-floating-tooltip.is-below {
+.floating-tooltip.is-below {
   transform: translateY(0);
 }
 
-.method-floating-tooltip.is-below::after {
+.floating-tooltip.is-below::after {
   top: 0;
   border-right: 0;
   border-bottom: 0;

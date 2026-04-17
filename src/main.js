@@ -17,7 +17,6 @@ import {
 
 const THEME_STORAGE_KEY = 'cute-visualizer:theme-color';
 const SIDEBAR_WIDTH_STORAGE_KEY = 'cute-visualizer:sidebar-width';
-const MAX_SELECTED_METHODS = 9;
 const DEFAULT_SELECTION_COUNT = 4;
 const DEFAULT_SIDEBAR_WIDTH = 272;
 const MIN_SIDEBAR_WIDTH = 180;
@@ -644,7 +643,7 @@ class ComparisonGridView {
       const emptyState = createElement('div', 'comparison-empty');
       emptyState.innerHTML = `
         <h3>Select at least one method</h3>
-        <p>Use the method buttons above to choose up to nine outputs for the current image.</p>
+        <p>Use the method buttons above to choose the outputs for the current image.</p>
       `;
       this.container.appendChild(emptyState);
       return;
@@ -725,7 +724,7 @@ class CuteVisualizerApp {
     this.root = root;
     this.gridView = null;
     this.urlSyncFrame = 0;
-    this.activeMethodTooltipTarget = null;
+    this.activeTooltipTarget = null;
     this.sidebarWidth = this.loadSidebarWidth();
     this.isResizingSidebar = false;
     this.themePresetSelect = null;
@@ -762,7 +761,7 @@ class CuteVisualizerApp {
     this.handleSidebarResizeEnd = this.handleSidebarResizeEnd.bind(this);
     this.handleSidebarResizeKeydown = this.handleSidebarResizeKeydown.bind(this);
     this.handleWindowResize = this.handleWindowResize.bind(this);
-    this.handleMethodListScroll = this.handleMethodListScroll.bind(this);
+    this.handleTooltipListScroll = this.handleTooltipListScroll.bind(this);
     this.handleGlobalKeydown = this.handleGlobalKeydown.bind(this);
     this.handleSidebarThumbnailIntersection = this.handleSidebarThumbnailIntersection.bind(this);
 
@@ -836,7 +835,7 @@ class CuteVisualizerApp {
           <div class="footer-controls" id="footerControls"></div>
         </footer>
       </div>
-      <div class="method-floating-tooltip" id="methodTooltip" aria-hidden="true"></div>
+      <div class="floating-tooltip" id="floatingTooltip" aria-hidden="true"></div>
     `;
 
     this.methodsList = document.getElementById('methodsList');
@@ -852,7 +851,7 @@ class CuteVisualizerApp {
     this.comparisonMount = document.getElementById('comparisonMount');
     this.infoDrawer = document.getElementById('infoDrawer');
     this.infoDrawerBackdrop = document.getElementById('infoDrawerBackdrop');
-    this.methodTooltip = document.getElementById('methodTooltip');
+    this.floatingTooltip = document.getElementById('floatingTooltip');
     this.footerBrand = document.getElementById('footerBrand');
     this.footerStatus = document.getElementById('footerStatus');
     this.footerControls = document.getElementById('footerControls');
@@ -866,7 +865,8 @@ class CuteVisualizerApp {
     this.sidebarResizer.addEventListener('mousedown', this.handleSidebarResizeStart);
     this.sidebarResizer.addEventListener('keydown', this.handleSidebarResizeKeydown);
     this.infoDrawerBackdrop.addEventListener('click', () => this.closeInfoDrawer());
-    this.methodsList.addEventListener('scroll', this.handleMethodListScroll);
+    this.methodsList.addEventListener('scroll', this.handleTooltipListScroll);
+    this.imageList.addEventListener('scroll', this.handleTooltipListScroll);
     window.addEventListener('resize', this.handleWindowResize);
 
     if (this.sidebarWidth !== null) {
@@ -1239,41 +1239,41 @@ class CuteVisualizerApp {
       this.updateSidebarResizeAria(this.getCurrentSidebarWidth());
     }
 
-    if (this.activeMethodTooltipTarget) {
-      this.positionMethodTooltip();
+    if (this.activeTooltipTarget) {
+      this.positionFloatingTooltip();
     }
   }
 
-  handleMethodListScroll() {
-    this.hideMethodTooltip();
+  handleTooltipListScroll() {
+    this.hideFloatingTooltip();
   }
 
-  showMethodTooltip(target, label) {
-    if (!this.methodTooltip || !target || !label) {
+  showFloatingTooltip(target, label) {
+    if (!this.floatingTooltip || !target || !label) {
       return;
     }
 
-    this.activeMethodTooltipTarget = target;
-    this.methodTooltip.textContent = label;
-    this.methodTooltip.classList.add('is-visible');
-    this.methodTooltip.setAttribute('aria-hidden', 'false');
-    this.positionMethodTooltip();
+    this.activeTooltipTarget = target;
+    this.floatingTooltip.textContent = label;
+    this.floatingTooltip.classList.add('is-visible');
+    this.floatingTooltip.setAttribute('aria-hidden', 'false');
+    this.positionFloatingTooltip();
   }
 
-  positionMethodTooltip() {
-    if (!this.methodTooltip || !this.activeMethodTooltipTarget) {
+  positionFloatingTooltip() {
+    if (!this.floatingTooltip || !this.activeTooltipTarget) {
       return;
     }
 
-    if (!this.activeMethodTooltipTarget.isConnected) {
-      this.hideMethodTooltip();
+    if (!this.activeTooltipTarget.isConnected) {
+      this.hideFloatingTooltip();
       return;
     }
 
-    const targetBounds = this.activeMethodTooltipTarget.getBoundingClientRect();
+    const targetBounds = this.activeTooltipTarget.getBoundingClientRect();
     const viewportPadding = 8;
     const gap = 8;
-    const tooltipBounds = this.methodTooltip.getBoundingClientRect();
+    const tooltipBounds = this.floatingTooltip.getBoundingClientRect();
     let left = targetBounds.left + targetBounds.width / 2 - tooltipBounds.width / 2;
     left = clamp(left, viewportPadding, window.innerWidth - tooltipBounds.width - viewportPadding);
 
@@ -1287,23 +1287,23 @@ class CuteVisualizerApp {
       placeBelow = true;
     }
 
-    this.methodTooltip.style.left = `${Math.round(left)}px`;
-    this.methodTooltip.style.top = `${Math.round(top)}px`;
-    this.methodTooltip.classList.toggle('is-below', placeBelow);
+    this.floatingTooltip.style.left = `${Math.round(left)}px`;
+    this.floatingTooltip.style.top = `${Math.round(top)}px`;
+    this.floatingTooltip.classList.toggle('is-below', placeBelow);
   }
 
-  hideMethodTooltip(target = null) {
-    if (target && target !== this.activeMethodTooltipTarget) {
+  hideFloatingTooltip(target = null) {
+    if (target && target !== this.activeTooltipTarget) {
       return;
     }
 
-    this.activeMethodTooltipTarget = null;
-    if (!this.methodTooltip) {
+    this.activeTooltipTarget = null;
+    if (!this.floatingTooltip) {
       return;
     }
 
-    this.methodTooltip.classList.remove('is-visible', 'is-below');
-    this.methodTooltip.setAttribute('aria-hidden', 'true');
+    this.floatingTooltip.classList.remove('is-visible', 'is-below');
+    this.floatingTooltip.setAttribute('aria-hidden', 'true');
   }
 
   applyTheme() {
@@ -1451,7 +1451,6 @@ class CuteVisualizerApp {
     button.type = 'button';
     const fullImageLabel =
       image.label === image.key ? image.key : `${image.label}\n${image.key}`;
-    button.title = fullImageLabel;
     button.setAttribute('aria-label', fullImageLabel.replace('\n', ' - '));
     if (image.id === this.state.selectedImageId) {
       button.classList.add('is-active');
@@ -1470,7 +1469,6 @@ class CuteVisualizerApp {
     thumb.draggable = false;
     thumb.width = SIDEBAR_THUMBNAIL_SIZE;
     thumb.height = SIDEBAR_THUMBNAIL_SIZE;
-    thumb.title = image.key;
     thumbFrame.classList.add('is-loading');
     thumb.addEventListener('load', () => {
       thumbFrame.classList.remove('is-loading');
@@ -1501,9 +1499,7 @@ class CuteVisualizerApp {
 
     const copy = createElement('div', 'image-item-copy');
     const title = createElement('span', 'image-item-title', image.label);
-    title.title = image.label;
     const key = createElement('span', 'image-item-key', image.key);
-    key.title = image.key;
     const meta = createElement(
       'span',
       'image-item-meta',
@@ -1512,7 +1508,14 @@ class CuteVisualizerApp {
     copy.append(title, key, meta);
 
     button.append(thumbFrame, copy);
-    button.addEventListener('click', () => this.setCurrentImage(image.id));
+    button.addEventListener('mouseenter', () => this.showFloatingTooltip(button, fullImageLabel));
+    button.addEventListener('mouseleave', () => this.hideFloatingTooltip(button));
+    button.addEventListener('focus', () => this.showFloatingTooltip(button, fullImageLabel));
+    button.addEventListener('blur', () => this.hideFloatingTooltip(button));
+    button.addEventListener('click', () => {
+      this.hideFloatingTooltip(button);
+      this.setCurrentImage(image.id);
+    });
     this.sidebarItems.set(image.id, button);
     return button;
   }
@@ -1530,15 +1533,10 @@ class CuteVisualizerApp {
     const currentImage = this.getCurrentImage();
     const availableIds = currentImage ? getImageMethodIds(currentImage) : [];
     const availableSet = new Set(availableIds);
-    const cleaned = this.state.selectedMethodIds
-      .filter((methodId) => availableSet.has(methodId))
-      .slice(0, MAX_SELECTED_METHODS);
+    const cleaned = this.state.selectedMethodIds.filter((methodId) => availableSet.has(methodId));
 
     if (!cleaned.length && availableIds.length) {
-      this.state.selectedMethodIds = availableIds.slice(
-        0,
-        Math.min(DEFAULT_SELECTION_COUNT, MAX_SELECTED_METHODS, availableIds.length),
-      );
+      this.state.selectedMethodIds = availableIds.slice(0, Math.min(DEFAULT_SELECTION_COUNT, availableIds.length));
     } else {
       this.state.selectedMethodIds = cleaned;
     }
@@ -1591,7 +1589,7 @@ class CuteVisualizerApp {
     const isSelected = this.state.selectedMethodIds.includes(methodId);
     if (isSelected) {
       this.state.selectedMethodIds = this.state.selectedMethodIds.filter((id) => id !== methodId);
-    } else if (this.state.selectedMethodIds.length < MAX_SELECTED_METHODS) {
+    } else {
       this.state.selectedMethodIds = [...this.state.selectedMethodIds, methodId];
     }
 
@@ -2236,7 +2234,7 @@ class CuteVisualizerApp {
   }
 
   updateMethodSelector() {
-    this.hideMethodTooltip();
+    this.hideFloatingTooltip();
     clearElement(this.methodsList);
 
     const manifest = this.state.manifest;
@@ -2254,15 +2252,14 @@ class CuteVisualizerApp {
 
     const availableMethods = this.getAvailableMethodIds();
     const selectedSet = new Set(this.state.selectedMethodIds);
-    const selectedCount = this.state.selectedMethodIds.length;
     const availableCount = availableMethods.size;
 
-    this.methodSectionMeta.textContent = `${selectedCount}/${MAX_SELECTED_METHODS} selected • ${availableCount} for this image`;
+    this.methodSectionMeta.textContent = `${this.state.selectedMethodIds.length} selected • ${availableCount} for this image`;
 
     manifest.methods.forEach((method) => {
       const isAvailable = availableMethods.has(method.id);
       const isSelected = selectedSet.has(method.id);
-      const shouldDisable = !isAvailable || (!isSelected && selectedCount >= MAX_SELECTED_METHODS);
+      const shouldDisable = !isAvailable;
 
       const button = createElement('button', 'method-option');
       button.type = 'button';
@@ -2275,9 +2272,6 @@ class CuteVisualizerApp {
       if (!isAvailable) {
         button.classList.add('is-unavailable');
       }
-      if (shouldDisable && isAvailable && !isSelected) {
-        button.classList.add('is-limit-blocked');
-      }
 
       const titleRow = createElement('span', 'method-option-title-row');
       const title = createElement('span', 'method-option-title', method.label);
@@ -2286,12 +2280,12 @@ class CuteVisualizerApp {
 
       titleRow.append(title, badge);
       button.append(titleRow);
-      button.addEventListener('mouseenter', () => this.showMethodTooltip(button, method.label));
-      button.addEventListener('mouseleave', () => this.hideMethodTooltip(button));
-      button.addEventListener('focus', () => this.showMethodTooltip(button, method.label));
-      button.addEventListener('blur', () => this.hideMethodTooltip(button));
+      button.addEventListener('mouseenter', () => this.showFloatingTooltip(button, method.label));
+      button.addEventListener('mouseleave', () => this.hideFloatingTooltip(button));
+      button.addEventListener('focus', () => this.showFloatingTooltip(button, method.label));
+      button.addEventListener('blur', () => this.hideFloatingTooltip(button));
       button.addEventListener('click', () => {
-        this.hideMethodTooltip(button);
+        this.hideFloatingTooltip(button);
         this.toggleMethod(method.id);
       });
       this.methodsList.appendChild(button);
@@ -2299,6 +2293,7 @@ class CuteVisualizerApp {
   }
 
   updateSidebar({ previousImageId = null } = {}) {
+    this.hideFloatingTooltip();
     const filteredImages = this.getFilteredImages();
     const manifest = this.state.manifest;
     this.imageSectionMeta.textContent = manifest
