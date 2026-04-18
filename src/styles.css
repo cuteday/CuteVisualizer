@@ -479,6 +479,7 @@ code {
   grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
+  position: relative;
 }
 
 .toolbar-bar {
@@ -807,6 +808,30 @@ code {
   min-width: 0;
 }
 
+.metadata-key-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    text-decoration-color 120ms ease;
+}
+
+.metadata-key-button:hover,
+.metadata-key-button:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+}
+
+.data-table-row-label-button {
+  min-width: 0;
+}
+
 .data-table-row-control {
   display: inline-flex;
   align-items: center;
@@ -935,6 +960,172 @@ code {
   word-break: break-word;
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
+}
+
+.attribute-panel-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  background: rgba(47, 41, 65, 0.14);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+
+.attribute-panel-backdrop.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.attribute-panel {
+  position: absolute;
+  top: 0.85rem;
+  bottom: 0.85rem;
+  left: 50%;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  width: min(var(--attribute-panel-target-width, 76rem), calc(100% - 1.7rem));
+  max-width: calc(100% - 1.7rem);
+  max-height: calc(100% - 1.7rem);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.95rem;
+  background: var(--surface);
+  box-shadow: 0 1rem 2.4rem rgba(47, 41, 65, 0.16);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 0.35rem) scale(0.985);
+  transition:
+    opacity 170ms ease,
+    transform 180ms ease;
+  overflow: hidden;
+}
+
+.attribute-panel.is-open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0) scale(1);
+}
+
+.attribute-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+  padding: 0.85rem 0.95rem 0.8rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.attribute-panel-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.attribute-panel-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.attribute-panel-title {
+  min-width: 0;
+  font-size: 0.96rem;
+  font-weight: 800;
+  line-height: 1.2;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.attribute-panel-subtitle {
+  font-size: 0.69rem;
+  line-height: 1.35;
+  color: var(--text-secondary);
+}
+
+.attribute-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.attribute-panel-color-control {
+  flex-shrink: 0;
+}
+
+.attribute-panel-body {
+  flex: 1;
+  min-height: 0;
+  padding: 0.8rem 0.95rem 0.95rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.attribute-panel-empty {
+  margin: 0.8rem 0.95rem 0.95rem;
+  padding: 1rem;
+  border: 1px dashed var(--border-strong);
+  border-radius: 0.7rem;
+  background: var(--surface-muted);
+  font-size: 0.73rem;
+  color: var(--text-secondary);
+}
+
+.attribute-matrix-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: 0.75rem 0.75rem 0 0;
+  background: var(--surface-strong);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.attribute-matrix-table {
+  width: max-content;
+  min-width: 100%;
+}
+
+.attribute-matrix-corner {
+  min-width: 14rem;
+}
+
+.attribute-matrix-row-key {
+  font-size: 0.71rem;
+  font-weight: 700;
+  line-height: 1.35;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.attribute-matrix-summary-key,
+.attribute-matrix-summary-cell {
+  background: color-mix(in srgb, var(--accent-soft) 62%, var(--surface-strong));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.attribute-matrix-summary-key {
+  font-weight: 800;
+}
+
+.attribute-matrix-scroll.has-sticky-summary .attribute-matrix-summary-key,
+.attribute-matrix-scroll.has-sticky-summary .attribute-matrix-summary-cell {
+  position: sticky;
+  bottom: 0;
+}
+
+.attribute-matrix-scroll.has-sticky-summary .attribute-matrix-summary-cell {
+  z-index: 2;
+}
+
+.attribute-matrix-scroll.has-sticky-summary .attribute-matrix-summary-key {
+  z-index: 4;
 }
 
 .comparison-grid {
@@ -1301,6 +1492,14 @@ code {
 }
 
 .info-drawer-key {
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.info-drawer-key-button {
   font-size: 0.64rem;
   font-weight: 700;
   letter-spacing: 0.06em;

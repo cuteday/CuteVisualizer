@@ -185,6 +185,14 @@ function createMetricColorModeIcon(mode) {
   return icon;
 }
 
+function getAttributePanelWidth(methodCount) {
+  const edgePaddingPx = 32;
+  const leadingColumnPx = 248;
+  const methodColumnPx = 198;
+  const minimumWidthPx = 720;
+  return Math.max(minimumWidthPx, leadingColumnPx + Math.max(methodCount, 1) * methodColumnPx + edgePaddingPx);
+}
+
 function getImageMethodIds(image) {
   if (!image || typeof image !== 'object') {
     return [];
@@ -725,6 +733,7 @@ class CuteVisualizerApp {
     this.gridView = null;
     this.urlSyncFrame = 0;
     this.activeTooltipTarget = null;
+    this.attributeMatrixScroll = null;
     this.sidebarWidth = this.loadSidebarWidth();
     this.isResizingSidebar = false;
     this.themePresetSelect = null;
@@ -748,6 +757,8 @@ class CuteVisualizerApp {
       infoDrawerOpen: false,
       infoDrawerImageId: null,
       infoDrawerMethodId: null,
+      attributePanelOpen: false,
+      attributePanelAttributeKey: null,
       methodInfoOpen: true,
       imageInfoOpen: true,
       metricColorModes: {},
@@ -826,6 +837,8 @@ class CuteVisualizerApp {
               <div class="info-drawer-backdrop" id="infoDrawerBackdrop"></div>
               <aside class="info-drawer" id="infoDrawer" aria-hidden="true"></aside>
             </section>
+            <div class="attribute-panel-backdrop" id="attributePanelBackdrop"></div>
+            <section class="attribute-panel" id="attributePanel" aria-hidden="true" role="dialog" aria-modal="true"></section>
           </main>
         </div>
 
@@ -851,6 +864,8 @@ class CuteVisualizerApp {
     this.comparisonMount = document.getElementById('comparisonMount');
     this.infoDrawer = document.getElementById('infoDrawer');
     this.infoDrawerBackdrop = document.getElementById('infoDrawerBackdrop');
+    this.attributePanelBackdrop = document.getElementById('attributePanelBackdrop');
+    this.attributePanel = document.getElementById('attributePanel');
     this.floatingTooltip = document.getElementById('floatingTooltip');
     this.footerBrand = document.getElementById('footerBrand');
     this.footerStatus = document.getElementById('footerStatus');
@@ -865,6 +880,7 @@ class CuteVisualizerApp {
     this.sidebarResizer.addEventListener('mousedown', this.handleSidebarResizeStart);
     this.sidebarResizer.addEventListener('keydown', this.handleSidebarResizeKeydown);
     this.infoDrawerBackdrop.addEventListener('click', () => this.closeInfoDrawer());
+    this.attributePanelBackdrop.addEventListener('click', () => this.closeAttributePanel());
     this.methodsList.addEventListener('scroll', this.handleTooltipListScroll);
     this.imageList.addEventListener('scroll', this.handleTooltipListScroll);
     window.addEventListener('resize', this.handleWindowResize);
@@ -1242,6 +1258,10 @@ class CuteVisualizerApp {
     if (this.activeTooltipTarget) {
       this.positionFloatingTooltip();
     }
+
+    if (this.attributeMatrixScroll) {
+      this.syncAttributeMatrixScrollState(this.attributeMatrixScroll);
+    }
   }
 
   handleTooltipListScroll() {
@@ -1306,6 +1326,38 @@ class CuteVisualizerApp {
     this.floatingTooltip.setAttribute('aria-hidden', 'true');
   }
 
+  syncAttributeMatrixScrollState(scroll) {
+    if (!scroll) {
+      return;
+    }
+
+    const syncState = () => {
+      if (!scroll.isConnected) {
+        return;
+      }
+
+      const hasHorizontalOverflow = scroll.scrollWidth > scroll.clientWidth + 1;
+      if (hasHorizontalOverflow && this.attributePanel) {
+        const chromeWidth = this.attributePanel.offsetWidth - scroll.clientWidth;
+        const requiredWidth = Math.ceil(scroll.scrollWidth + chromeWidth);
+        const currentWidth = Number.parseFloat(
+          this.attributePanel.style.getPropertyValue('--attribute-panel-target-width'),
+        );
+        if (!Number.isFinite(currentWidth) || requiredWidth > currentWidth + 1) {
+          this.attributePanel.style.setProperty('--attribute-panel-target-width', `${requiredWidth}px`);
+        }
+      }
+
+      const hasVerticalOverflow = scroll.scrollHeight > scroll.clientHeight + 1;
+      scroll.classList.toggle('has-sticky-summary', hasVerticalOverflow);
+    };
+
+    syncState();
+    if (typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(syncState);
+    }
+  }
+
   applyTheme() {
     const tokens = buildThemeTokens(this.state.themeColor);
     Object.entries(tokens).forEach(([key, value]) => {
@@ -1322,6 +1374,7 @@ class CuteVisualizerApp {
     this.updateToolbar();
     this.renderGrid();
     this.renderInfoDrawer();
+    this.renderAttributePanel();
   }
 
   getCurrentImage() {
@@ -1563,6 +1616,7 @@ class CuteVisualizerApp {
     this.updateMethodSelector();
     this.updateToolbar();
     this.renderGrid();
+    this.renderAttributePanel();
   }
 
   moveImage(offset) {
@@ -1599,6 +1653,7 @@ class CuteVisualizerApp {
     this.updateMethodSelector();
     this.updateToolbar();
     this.renderGrid();
+    this.renderAttributePanel();
   }
 
   setComparisonMode(mode) {
@@ -1612,6 +1667,7 @@ class CuteVisualizerApp {
     this.updateModeToggle();
     this.updateToolbar();
     this.renderGrid();
+    this.renderAttributePanel();
   }
 
   updateModeToggle() {
@@ -1663,6 +1719,7 @@ class CuteVisualizerApp {
     }
     this.updateToolbarStats();
     this.renderGrid();
+    this.renderAttributePanel();
   }
 
   openInfoDrawer(imageId, methodId) {
@@ -1709,6 +1766,7 @@ class CuteVisualizerApp {
       this.updateToolbarStats();
       this.renderGrid();
       this.renderInfoDrawer();
+      this.renderAttributePanel();
     } else {
       this.state.infoDrawerMethodId = nextMethodId;
       this.renderInfoDrawer();
@@ -1716,6 +1774,12 @@ class CuteVisualizerApp {
   }
 
   handleGlobalKeydown(event) {
+    if (event.code === 'Escape' && this.state.attributePanelOpen) {
+      event.preventDefault();
+      this.closeAttributePanel();
+      return;
+    }
+
     if (event.code === 'Escape' && this.state.infoDrawerOpen) {
       event.preventDefault();
       this.closeInfoDrawer();
@@ -1754,9 +1818,34 @@ class CuteVisualizerApp {
     this.cycleSwitchMethod(1);
   }
 
-  renderInfoValue(key, value) {
+  createMetadataKeyNode(
+    key,
+    { tagName = 'div', staticClass, buttonClass, onClick = null, ariaLabel = null } = {},
+  ) {
+    if (typeof onClick === 'function') {
+      const button = createElement(
+        'button',
+        ['metadata-key-button', buttonClass].filter(Boolean).join(' '),
+        key,
+      );
+      button.type = 'button';
+      button.title = `Open attribute table for ${key}`;
+      button.setAttribute('aria-label', ariaLabel ?? `Open attribute table for ${key}`);
+      button.addEventListener('click', onClick);
+      return button;
+    }
+
+    return createElement(tagName, staticClass, key);
+  }
+
+  renderInfoValue(key, value, { onKeyClick = null } = {}) {
     const row = createElement('div', 'info-drawer-row');
-    const keyLabel = createElement('div', 'info-drawer-key', key);
+    const keyLabel = this.createMetadataKeyNode(key, {
+      tagName: 'div',
+      staticClass: 'info-drawer-key',
+      buttonClass: 'info-drawer-key-button',
+      onClick: onKeyClick,
+    });
     row.appendChild(keyLabel);
     row.appendChild(
       this.createDisplayValueNode(value, {
@@ -1799,6 +1888,16 @@ class CuteVisualizerApp {
     return method && method.metadata && typeof method.metadata === 'object' ? method.metadata : {};
   }
 
+  getMetadataValue(metadata, attributeKey) {
+    return metadata && typeof metadata === 'object' && hasOwn(metadata, attributeKey)
+      ? metadata[attributeKey]
+      : undefined;
+  }
+
+  getImageAttributeValue(image, methodId, attributeKey) {
+    return this.getMetadataValue(getImageMethodRecord(image, methodId)?.metadata, attributeKey);
+  }
+
   collectMetadataKeys(methods, resolveMetadata) {
     const seen = new Set();
     methods.forEach((method) => {
@@ -1815,6 +1914,31 @@ class CuteVisualizerApp {
     });
 
     return [...seen];
+  }
+
+  getNumericValueStats(values) {
+    let numericCount = 0;
+    let min = Number.POSITIVE_INFINITY;
+    let max = Number.NEGATIVE_INFINITY;
+    let hasFractionalValue = false;
+
+    values.forEach((value) => {
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return;
+      }
+
+      numericCount += 1;
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+      hasFractionalValue = hasFractionalValue || !Number.isInteger(value);
+    });
+
+    return {
+      numericCount,
+      min: numericCount ? min : null,
+      max: numericCount ? max : null,
+      isColorizable: numericCount > 0 && hasFractionalValue,
+    };
   }
 
   getMetricColorModeKey(sectionId, attributeKey) {
@@ -1838,36 +1962,13 @@ class CuteVisualizerApp {
     }
 
     this.renderGrid();
+    this.renderAttributePanel();
   }
 
   getMetricRowStats(methods, resolveMetadata, attributeKey) {
-    let numericCount = 0;
-    let min = Number.POSITIVE_INFINITY;
-    let max = Number.NEGATIVE_INFINITY;
-    let hasFractionalValue = false;
-
-    methods.forEach((method) => {
-      const metadata = resolveMetadata(method);
-      const value =
-        metadata && typeof metadata === 'object' && hasOwn(metadata, attributeKey)
-          ? metadata[attributeKey]
-          : undefined;
-      if (typeof value !== 'number' || !Number.isFinite(value)) {
-        return;
-      }
-
-      numericCount += 1;
-      min = Math.min(min, value);
-      max = Math.max(max, value);
-      hasFractionalValue = hasFractionalValue || !Number.isInteger(value);
-    });
-
-    return {
-      numericCount,
-      min: numericCount ? min : null,
-      max: numericCount ? max : null,
-      isColorizable: numericCount > 0 && hasFractionalValue,
-    };
+    return this.getNumericValueStats(
+      methods.map((method) => this.getMetadataValue(resolveMetadata(method), attributeKey)),
+    );
   }
 
   getMetricColorStyle(value, rowStats, colorMode) {
@@ -1906,6 +2007,7 @@ class CuteVisualizerApp {
     methods,
     resolveMetadata,
     emptyMessage,
+    { onAttributeClick = null } = {},
   ) {
     const section = createElement('section', 'data-section');
     const header = createElement('div', 'data-section-header');
@@ -1949,7 +2051,12 @@ class CuteVisualizerApp {
       const rowKey = createElement('th', 'data-table-row-key');
       rowKey.scope = 'row';
       const rowHeader = createElement('div', 'data-table-row-header');
-      const rowLabel = createElement('span', 'data-table-row-label', key);
+      const rowLabel = this.createMetadataKeyNode(key, {
+        tagName: 'span',
+        staticClass: 'data-table-row-label',
+        buttonClass: 'data-table-row-label-button',
+        onClick: onAttributeClick ? () => onAttributeClick(key) : null,
+      });
       rowHeader.appendChild(rowLabel);
 
       if (rowStats.isColorizable) {
@@ -1972,9 +2079,7 @@ class CuteVisualizerApp {
 
       methods.forEach((method) => {
         const cell = createElement('td', 'data-table-cell');
-        const metadata = resolveMetadata(method);
-        const value =
-          metadata && typeof metadata === 'object' && hasOwn(metadata, key) ? metadata[key] : undefined;
+        const value = this.getMetadataValue(resolveMetadata(method), key);
         if (value === undefined) {
           cell.classList.add('is-missing');
         }
@@ -2025,6 +2130,9 @@ class CuteVisualizerApp {
         methods,
         (method) => getImageMethodRecord(currentImage, method.id)?.metadata ?? {},
         'No custom metadata exists for the current image across the selected methods.',
+        {
+          onAttributeClick: (attributeKey) => this.openAttributePanel(attributeKey),
+        },
       ),
       this.renderDataTableSection(
         'method',
@@ -2039,7 +2147,11 @@ class CuteVisualizerApp {
     this.comparisonMount.appendChild(dataView);
   }
 
-  renderInfoSection(title, metadata, { openByDefault = false, emptyMessage, stateKey = null } = {}) {
+  renderInfoSection(
+    title,
+    metadata,
+    { openByDefault = false, emptyMessage, stateKey = null, onKeyClick = null } = {},
+  ) {
     const details = createElement('details', 'info-drawer-section');
     const shouldOpen = stateKey ? this.state[stateKey] : openByDefault;
     if (shouldOpen) {
@@ -2070,7 +2182,11 @@ class CuteVisualizerApp {
       );
     } else {
       metadataKeys.forEach((key) => {
-        list.appendChild(this.renderInfoValue(key, metadata[key]));
+        list.appendChild(
+          this.renderInfoValue(key, metadata[key], {
+            onKeyClick: onKeyClick ? () => onKeyClick(key) : null,
+          }),
+        );
       });
     }
 
@@ -2146,6 +2262,7 @@ class CuteVisualizerApp {
         openByDefault: true,
         emptyMessage: 'No custom metadata for this method-image pair.',
         stateKey: 'imageInfoOpen',
+        onKeyClick: (attributeKey) => this.openAttributePanel(attributeKey),
       }),
     );
     drawerBody.appendChild(
@@ -2156,6 +2273,216 @@ class CuteVisualizerApp {
       }),
     );
     this.infoDrawer.append(drawerHeader, drawerIdentity, drawerBody);
+  }
+
+  openAttributePanel(attributeKey) {
+    if (!attributeKey) {
+      return;
+    }
+
+    this.state.attributePanelOpen = true;
+    this.state.attributePanelAttributeKey = attributeKey;
+    this.renderAttributePanel();
+  }
+
+  closeAttributePanel() {
+    this.state.attributePanelOpen = false;
+    this.state.attributePanelAttributeKey = null;
+    this.renderAttributePanel();
+  }
+
+  renderAttributePanel() {
+    if (!this.attributePanel || !this.attributePanelBackdrop) {
+      return;
+    }
+
+    this.attributeMatrixScroll = null;
+    clearElement(this.attributePanel);
+
+    const isOpen = this.state.attributePanelOpen;
+    this.attributePanel.classList.toggle('is-open', isOpen);
+    this.attributePanelBackdrop.classList.toggle('is-open', isOpen);
+    this.attributePanel.setAttribute('aria-hidden', String(!isOpen));
+
+    if (!isOpen) {
+      return;
+    }
+
+    const manifest = this.state.manifest;
+    const attributeKey = this.state.attributePanelAttributeKey;
+    if (!manifest || !attributeKey) {
+      this.closeAttributePanel();
+      return;
+    }
+
+    const methods = this.getSelectedMethods();
+    const images = manifest.images ?? [];
+    const panelValues = [];
+    const matrixRows = images.map((image) => {
+      const values = methods.map((method) => this.getImageAttributeValue(image, method.id, attributeKey));
+      panelValues.push(...values);
+      return {
+        image,
+        values,
+        stats: this.getNumericValueStats(values),
+      };
+    });
+
+    const panelStats = this.getNumericValueStats(panelValues);
+    const colorMode = panelStats.isColorizable ? this.getMetricColorMode('image', attributeKey) : 'off';
+    this.attributePanel.style.setProperty(
+      '--attribute-panel-target-width',
+      `${getAttributePanelWidth(methods.length)}px`,
+    );
+
+    const header = createElement('div', 'attribute-panel-header');
+    const titleGroup = createElement('div', 'attribute-panel-title-group');
+    const titleRow = createElement('div', 'attribute-panel-title-row');
+    const title = createElement('div', 'attribute-panel-title', attributeKey);
+    titleRow.appendChild(title);
+    if (panelStats.isColorizable) {
+      const colorMeta = getMetricColorModeMeta(colorMode);
+      const colorButton = createElement(
+        'button',
+        `data-table-row-control attribute-panel-color-control${colorMode !== 'off' ? ` is-${colorMode}` : ''}`,
+      );
+      colorButton.type = 'button';
+      colorButton.title = colorMeta.description;
+      colorButton.setAttribute('aria-pressed', String(colorMode !== 'off'));
+      colorButton.setAttribute('aria-label', `${attributeKey}. ${colorMeta.description}`);
+      colorButton.appendChild(createMetricColorModeIcon(colorMode));
+      colorButton.addEventListener('click', () => this.cycleMetricColorMode('image', attributeKey));
+      titleRow.appendChild(colorButton);
+    }
+
+    const subtitle = createElement(
+      'div',
+      'attribute-panel-subtitle',
+      `${images.length} indexed image${images.length === 1 ? '' : 's'} • ${methods.length} selected method${methods.length === 1 ? '' : 's'}`,
+    );
+    titleGroup.append(titleRow, subtitle);
+
+    const actions = createElement('div', 'attribute-panel-actions');
+    const closeButton = createElement('button', 'info-drawer-button', 'Close');
+    closeButton.type = 'button';
+    closeButton.addEventListener('click', () => this.closeAttributePanel());
+    actions.appendChild(closeButton);
+
+    header.append(titleGroup, actions);
+    this.attributePanel.appendChild(header);
+
+    if (!methods.length) {
+      this.attributePanel.appendChild(
+        createElement(
+          'div',
+          'attribute-panel-empty',
+          'Select at least one method to inspect this attribute across all images.',
+        ),
+      );
+      return;
+    }
+
+    const body = createElement('div', 'attribute-panel-body');
+    const scroll = createElement('div', 'attribute-matrix-scroll');
+    this.attributeMatrixScroll = scroll;
+    const table = createElement('table', 'data-table attribute-matrix-table');
+    const head = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    const imageHead = createElement('th', 'data-table-attribute-head attribute-matrix-corner', 'Image');
+    imageHead.scope = 'col';
+    headRow.appendChild(imageHead);
+
+    methods.forEach((method) => {
+      const methodHead = createElement('th', 'data-table-method-head');
+      methodHead.scope = 'col';
+      const methodButton = createElement('button', 'data-table-method-button', method.label);
+      methodButton.type = 'button';
+      methodButton.title = `Show info for ${method.label}`;
+      methodButton.setAttribute('aria-label', `Show info for ${method.label}`);
+      methodButton.addEventListener('click', () => this.openInfoDrawer(this.state.selectedImageId, method.id));
+      methodHead.appendChild(methodButton);
+      headRow.appendChild(methodHead);
+    });
+    head.appendChild(headRow);
+
+    const bodyRows = document.createElement('tbody');
+    matrixRows.forEach(({ image, values, stats }) => {
+      const row = document.createElement('tr');
+      const rowKey = createElement('th', 'data-table-row-key attribute-matrix-row-key');
+      rowKey.scope = 'row';
+      rowKey.textContent = image.label;
+      rowKey.title = image.label === image.key ? image.key : `${image.label}\n${image.key}`;
+      row.appendChild(rowKey);
+
+      values.forEach((value) => {
+        const cell = createElement('td', 'data-table-cell');
+        if (value === undefined) {
+          cell.classList.add('is-missing');
+        }
+        const valueNode = this.createDisplayValueNode(value, {
+          tagName: 'div',
+          scalarClass: 'data-table-value',
+          jsonClass: 'data-table-json',
+          missingClass: 'data-table-value is-missing',
+        });
+        const colorStyle = this.getMetricColorStyle(value, stats, colorMode);
+        if (colorStyle && valueNode instanceof HTMLElement) {
+          valueNode.classList.add('is-colorized');
+          valueNode.style.color = colorStyle.color;
+        }
+        cell.appendChild(valueNode);
+        row.appendChild(cell);
+      });
+
+      bodyRows.appendChild(row);
+    });
+
+    table.appendChild(head);
+    table.appendChild(bodyRows);
+
+    const averages = methods.map((method) => {
+      const numericValues = images
+        .map((image) => this.getImageAttributeValue(image, method.id, attributeKey))
+        .filter((value) => typeof value === 'number' && Number.isFinite(value));
+      if (!numericValues.length) {
+        return undefined;
+      }
+      return numericValues.reduce((sum, value) => sum + value, 0) / numericValues.length;
+    });
+    const averageStats = this.getNumericValueStats(averages);
+    const foot = document.createElement('tfoot');
+    const averageRow = document.createElement('tr');
+    const averageKey = createElement('th', 'data-table-row-key attribute-matrix-summary-key', 'Average');
+    averageKey.scope = 'row';
+    averageRow.appendChild(averageKey);
+
+    averages.forEach((value) => {
+      const cell = createElement('td', 'data-table-cell attribute-matrix-summary-cell');
+      if (value === undefined) {
+        cell.classList.add('is-missing');
+      }
+      const valueNode = this.createDisplayValueNode(value, {
+        tagName: 'div',
+        scalarClass: 'data-table-value',
+        jsonClass: 'data-table-json',
+        missingClass: 'data-table-value is-missing',
+      });
+      const colorStyle = this.getMetricColorStyle(value, averageStats, colorMode);
+      if (colorStyle && valueNode instanceof HTMLElement) {
+        valueNode.classList.add('is-colorized');
+        valueNode.style.color = colorStyle.color;
+      }
+      cell.appendChild(valueNode);
+      averageRow.appendChild(cell);
+    });
+
+    foot.appendChild(averageRow);
+    table.appendChild(foot);
+
+    scroll.appendChild(table);
+    body.appendChild(scroll);
+    this.attributePanel.appendChild(body);
+    this.syncAttributeMatrixScrollState(scroll);
   }
 
   setViewport(nextViewport) {
