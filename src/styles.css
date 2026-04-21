@@ -322,6 +322,7 @@ code {
   grid-template-columns: var(--sidebar-width) var(--sidebar-resizer-width) minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
+  position: relative;
 }
 
 .image-sidebar {
@@ -979,8 +980,7 @@ code {
 
 .attribute-panel {
   position: absolute;
-  top: 0.85rem;
-  bottom: 0.85rem;
+  top: 50%;
   left: 50%;
   z-index: 5;
   display: flex;
@@ -988,13 +988,14 @@ code {
   width: min(var(--attribute-panel-target-width, 76rem), calc(100% - 1.7rem));
   max-width: calc(100% - 1.7rem);
   max-height: calc(100% - 1.7rem);
+  min-height: 0;
   border: 1px solid var(--border-strong);
   border-radius: 0.95rem;
   background: var(--surface);
   box-shadow: 0 1rem 2.4rem rgba(47, 41, 65, 0.16);
   opacity: 0;
   pointer-events: none;
-  transform: translate(-50%, 0.35rem) scale(0.985);
+  transform: translate(-50%, -50%) translateY(0.35rem) scale(0.985);
   transition:
     opacity 170ms ease,
     transform 180ms ease;
@@ -1004,7 +1005,7 @@ code {
 .attribute-panel.is-open {
   opacity: 1;
   pointer-events: auto;
-  transform: translate(-50%, 0) scale(1);
+  transform: translate(-50%, -50%) scale(1);
 }
 
 .attribute-panel-header {
@@ -1057,7 +1058,7 @@ code {
 }
 
 .attribute-panel-body {
-  flex: 1;
+  flex: 0 1 auto;
   min-height: 0;
   padding: 0.8rem 0.95rem 0.95rem;
   display: flex;
@@ -1076,7 +1077,7 @@ code {
 }
 
 .attribute-matrix-scroll {
-  flex: 1;
+  flex: 0 1 auto;
   min-height: 0;
   overflow: auto;
   border: 1px solid var(--border);

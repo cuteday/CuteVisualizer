@@ -734,6 +734,7 @@ class CuteVisualizerApp {
     this.urlSyncFrame = 0;
     this.activeTooltipTarget = null;
     this.attributeMatrixScroll = null;
+    this.attributeMatrixTable = null;
     this.sidebarWidth = this.loadSidebarWidth();
     this.isResizingSidebar = false;
     this.themePresetSelect = null;
@@ -837,9 +838,10 @@ class CuteVisualizerApp {
               <div class="info-drawer-backdrop" id="infoDrawerBackdrop"></div>
               <aside class="info-drawer" id="infoDrawer" aria-hidden="true"></aside>
             </section>
-            <div class="attribute-panel-backdrop" id="attributePanelBackdrop"></div>
-            <section class="attribute-panel" id="attributePanel" aria-hidden="true" role="dialog" aria-modal="true"></section>
           </main>
+
+          <div class="attribute-panel-backdrop" id="attributePanelBackdrop"></div>
+          <section class="attribute-panel" id="attributePanel" aria-hidden="true" role="dialog" aria-modal="true"></section>
         </div>
 
         <footer class="app-footer">
@@ -2297,6 +2299,7 @@ class CuteVisualizerApp {
     }
 
     this.attributeMatrixScroll = null;
+    this.attributeMatrixTable = null;
     clearElement(this.attributePanel);
 
     const isOpen = this.state.attributePanelOpen;
@@ -2386,6 +2389,7 @@ class CuteVisualizerApp {
     const scroll = createElement('div', 'attribute-matrix-scroll');
     this.attributeMatrixScroll = scroll;
     const table = createElement('table', 'data-table attribute-matrix-table');
+    this.attributeMatrixTable = table;
     const head = document.createElement('thead');
     const headRow = document.createElement('tr');
     const imageHead = createElement('th', 'data-table-attribute-head attribute-matrix-corner', 'Image');
