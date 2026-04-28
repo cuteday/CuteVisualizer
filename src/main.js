@@ -1,4 +1,4 @@
-import { MANIFEST_PATH, loadManifest } from './lib/manifest.js';
+import { getManifestPath, loadManifest } from './lib/manifest.js';
 import { getGridLayout } from './lib/layout.js';
 import {
   DEFAULT_THEME_COLOR,
@@ -2510,13 +2510,14 @@ class CuteVisualizerApp {
     const brandMode = createElement('span', 'footer-caption', 'static image comparison');
     this.footerBrand.append(brandName, brandMode);
 
-    let statusText = `Manifest path: ${MANIFEST_PATH}`;
+    const manifestPath = getManifestPath();
+    let statusText = `Manifest path: ${manifestPath}`;
     if (this.state.error) {
       statusText = this.state.error;
     } else if (this.state.loading) {
       statusText = 'Loading manifest...';
     } else if (this.state.manifest) {
-      statusText = `${this.state.manifest.methods.length} methods • ${this.state.manifest.images.length} images • Indexed ${formatTimestamp(this.state.manifest.generatedAt)}`;
+      statusText = `${this.state.manifest.methods.length} methods • ${this.state.manifest.images.length} images • Indexed ${formatTimestamp(this.state.manifest.generatedAt)} • ${manifestPath}`;
     }
 
     this.footerStatus.textContent = statusText;

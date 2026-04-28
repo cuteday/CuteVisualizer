@@ -22,7 +22,6 @@ from typing import Dict, Iterable, List
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT_METHODS_DIR = REPO_ROOT / "public" / "data" / "methods"
-DEFAULT_OUTPUT = REPO_ROOT / "public" / "data" / "manifest.json"
 DEFAULT_WEB_ROOT = REPO_ROOT
 DEFAULT_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg", ".avif")
 
@@ -345,8 +344,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=pathlib.Path,
-        default=DEFAULT_OUTPUT,
-        help=f"Output manifest path. Default: {DEFAULT_OUTPUT}",
+        default=None,
+        help="Output manifest path. Default: ../methods-dir/manifest.json",
     )
     parser.add_argument(
         "--web-root",
@@ -371,6 +370,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    if args.output is None:
+        args.output = args.methods_dir.parent / "manifest.json"
     try:
         manifest = build_manifest(
             methods_dir=args.methods_dir,
