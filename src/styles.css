@@ -1541,7 +1541,6 @@ code {
   background: var(--surface-muted);
 }
 
-.comparison-empty,
 .empty-inline {
   display: grid;
   place-items: center;
@@ -1551,6 +1550,20 @@ code {
   background: var(--surface);
   text-align: center;
   color: var(--text-secondary);
+}
+
+.comparison-empty {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 0.9rem;
+  background: transparent;
+  text-align: center;
+  color: var(--text-secondary);
+  animation: promptPulse 2.4s ease-in-out infinite;
 }
 
 .comparison-empty h3,
@@ -1567,6 +1580,49 @@ code {
   line-height: 1.45;
 }
 
+.panel-message {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 0.9rem;
+  text-align: center;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  pointer-events: none;
+}
+
+.panel-loading {
+  opacity: 0;
+}
+
+.comparison-panel.is-loading .panel-loading {
+  animation: promptPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes promptPulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .comparison-empty {
+    animation: none;
+    opacity: 1;
+  }
+
+  .comparison-panel.is-loading .panel-loading {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 .app-footer {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -1578,9 +1634,22 @@ code {
 
 .footer-brand {
   display: flex;
-  align-items: baseline;
-  gap: 0.45rem;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.6rem;
   min-width: 0;
+}
+
+.footer-dataset {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.footer-dataset-select {
+  min-width: 6.5rem;
+  max-width: 12rem;
 }
 
 .footer-name {

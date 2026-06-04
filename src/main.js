@@ -1,4 +1,10 @@
-import { getManifestPath, loadManifest } from './lib/manifest.js';
+import {
+  getCurrentDatasetName,
+  getDefaultDatasetName,
+  getManifestPath,
+  listDatasets,
+  loadManifest,
+} from './lib/manifest.js';
 import { getGridLayout } from './lib/layout.js';
 import {
   DEFAULT_THEME_COLOR,
@@ -27,6 +33,8 @@ const URL_PARAM_IMAGE = 'img';
 const URL_PARAM_METHODS = 'methods';
 const URL_PARAM_MODE = 'mode';
 const URL_PARAM_CROP = 'crop';
+const URL_PARAM_DATASET = 'dataset';
+const URL_PARAM_MANIFEST = 'manifest';
 const SIDEBAR_THUMBNAIL_SIZE = 96;
 const SIDEBAR_THUMBNAIL_CONCURRENCY = 3;
 const MAX_SHAREABLE_ZOOM = 30;
@@ -307,8 +315,9 @@ class ComparisonPanel {
     this.overlay = createElement('div', 'panel-overlay');
     this.overlay.textContent = 'Scroll to zoom. Drag with left mouse button to pan.';
     this.coordinateTip = createElement('div', 'panel-coordinate-tip');
+    this.loadingIndicator = createElement('div', 'panel-message panel-loading', 'Loading image...');
 
-    this.stage.append(this.canvas, this.overlay, this.coordinateTip);
+    this.stage.append(this.canvas, this.loadingIndicator, this.overlay, this.coordinateTip);
     this.element.append(this.header, this.stage);
 
     this.methodTag.addEventListener('click', this.handleMethodTagClick);
@@ -361,6 +370,27 @@ class ComparisonPanel {
     }
   }
 
+  clearCanvasSurface() {
+    if (!this.canvasContext) {
+      return;
+    }
+
+    this.canvasContext.setTransform(1, 0, 0, 1, 0, 0);
+    this.canvasContext.clearRect(0, 0, this.canvas.width, this.canvas.height);
+  }
+
+  enterLoadingState() {
+    this.image = null;
+    this.naturalSize = null;
+    this.hoverPoint = null;
+    this.isDragging = false;
+    this.element.classList.remove('is-error', 'is-zoomed', 'is-dragging');
+    this.element.classList.add('is-loading');
+    this.clearCanvasSurface();
+    this.hideCoordinateTip();
+    this.updateCursor();
+  }
+
   applyLoadedImage(image, imagePath, imageLabel) {
     this.image = image;
     this.imagePath = imagePath;
@@ -370,16 +400,21 @@ class ComparisonPanel {
       height: image.naturalHeight,
     };
     this.metaTag.textContent = `${this.naturalSize.width} x ${this.naturalSize.height}`;
-    this.element.classList.remove('is-error');
+    this.element.classList.remove('is-error', 'is-loading');
     this.refreshLayout();
     this.updateCursor();
   }
 
   handleImageError() {
+    this.image = null;
+    this.naturalSize = null;
+    this.element.classList.remove('is-loading');
     this.element.classList.add('is-error');
+    this.clearCanvasSurface();
     this.metaTag.textContent = 'Image unavailable';
     this.overlay.textContent = 'This image could not be loaded.';
     this.hideCoordinateTip();
+    this.updateCursor();
   }
 
   loadImageSource(imagePath, imageLabel) {
@@ -428,8 +463,7 @@ class ComparisonPanel {
     }
 
     this.metaTag.textContent = 'Loading...';
-    this.hoverPoint = null;
-    this.hideCoordinateTip();
+    this.enterLoadingState();
     this.loadImageSource(imagePath, imageLabel);
   }
 
@@ -742,6 +776,9 @@ class CuteVisualizerApp {
     this.sidebarItems = new Map();
     this.sidebarOrderKey = '';
     this.sidebarScrollTop = 0;
+    this.datasetOptions = null;
+    this.datasetOptionsRequested = false;
+    this.datasetSelect = null;
     this.thumbnailService = new RuntimeThumbnailCache({
       targetSize: SIDEBAR_THUMBNAIL_SIZE,
       maxConcurrency: SIDEBAR_THUMBNAIL_CONCURRENCY,
@@ -781,6 +818,51 @@ class CuteVisualizerApp {
     this.initializeSidebarThumbnailObserver();
     this.applyTheme();
     document.addEventListener('keydown', this.handleGlobalKeydown);
+    this.reloadManifest();
+    this.loadDatasetOptions();
+  }
+
+  async loadDatasetOptions() {
+    if (this.datasetOptionsRequested) {
+      return;
+    }
+
+    this.datasetOptionsRequested = true;
+
+    try {
+      this.datasetOptions = await listDatasets();
+    } catch (_error) {
+      this.datasetOptions = null;
+    }
+
+    this.updateFooter();
+  }
+
+  setDataset(datasetName) {
+    if (!datasetName || datasetName === getCurrentDatasetName()) {
+      return;
+    }
+
+    const url = new URL(window.location.href);
+    if (datasetName === getDefaultDatasetName()) {
+      url.searchParams.delete(URL_PARAM_DATASET);
+    } else {
+      url.searchParams.set(URL_PARAM_DATASET, datasetName);
+    }
+    url.searchParams.delete(URL_PARAM_MANIFEST);
+    url.searchParams.delete(URL_PARAM_IMAGE);
+    url.searchParams.delete(URL_PARAM_METHODS);
+    url.searchParams.delete(URL_PARAM_CROP);
+
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+    window.history.replaceState(null, '', nextUrl);
+
+    this.state.selectedImageId = null;
+    this.state.selectedMethodIds = [];
+    this.state.viewport = { ...DEFAULT_VIEWPORT };
+    this.closeInfoDrawer();
+    this.closeAttributePanel();
+
     this.reloadManifest();
   }
 
@@ -2501,23 +2583,55 @@ class CuteVisualizerApp {
     this.scheduleUrlSync();
   }
 
+  buildDatasetControl() {
+    const cluster = createElement('div', 'footer-dataset');
+    const label = createElement('span', 'footer-label', 'Dataset');
+    const select = createElement('select', 'theme-select footer-dataset-select');
+    select.id = 'datasetSelect';
+    select.setAttribute('aria-label', 'Select dataset');
+
+    const currentDataset = getCurrentDatasetName();
+    const options =
+      this.datasetOptions && this.datasetOptions.length
+        ? [...this.datasetOptions]
+        : [{ name: currentDataset, label: currentDataset }];
+
+    if (!options.some((option) => option.name === currentDataset)) {
+      options.push({ name: currentDataset, label: currentDataset });
+    }
+
+    options.forEach((option) => {
+      const optionElement = document.createElement('option');
+      optionElement.value = option.name;
+      optionElement.textContent = option.label;
+      select.appendChild(optionElement);
+    });
+
+    select.value = currentDataset;
+    select.disabled = this.state.loading;
+    select.addEventListener('change', (event) => this.setDataset(event.target.value));
+
+    this.datasetSelect = select;
+    cluster.append(label, select);
+    return cluster;
+  }
+
   updateFooter() {
     clearElement(this.footerBrand);
     clearElement(this.footerStatus);
     clearElement(this.footerControls);
 
     const brandName = createElement('span', 'footer-name', 'Image Visualizer');
-    const brandMode = createElement('span', 'footer-caption', 'static image comparison');
-    this.footerBrand.append(brandName, brandMode);
+    const brandMode = createElement('span', 'footer-caption', '');
+    this.footerBrand.append(brandName, brandMode, this.buildDatasetControl());
 
-    const manifestPath = getManifestPath();
-    let statusText = `Manifest path: ${manifestPath}`;
+    let statusText = `Manifest path: ${getManifestPath()}`;
     if (this.state.error) {
       statusText = this.state.error;
     } else if (this.state.loading) {
       statusText = 'Loading manifest...';
     } else if (this.state.manifest) {
-      statusText = `${this.state.manifest.methods.length} methods • ${this.state.manifest.images.length} images • Indexed ${formatTimestamp(this.state.manifest.generatedAt)} • ${manifestPath}`;
+      statusText = `${this.state.manifest.methods.length} methods • ${this.state.manifest.images.length} images • Indexed ${formatTimestamp(this.state.manifest.generatedAt)}`;
     }
 
     this.footerStatus.textContent = statusText;
