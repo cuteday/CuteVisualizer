@@ -37,6 +37,7 @@ const URL_PARAM_DATASET = 'dataset';
 const URL_PARAM_MANIFEST = 'manifest';
 const SIDEBAR_THUMBNAIL_SIZE = 96;
 const SIDEBAR_THUMBNAIL_CONCURRENCY = 3;
+const LOADING_INDICATOR_DELAY_MS = 180;
 const MAX_SHAREABLE_ZOOM = 30;
 const VIEWPORT_URL_PRECISION = 4;
 const DISPLAY_FLOAT_PRECISION = 5;
@@ -281,6 +282,7 @@ class ComparisonPanel {
     this.hoverPoint = null;
     this.image = null;
     this.imageLoadToken = 0;
+    this.loadingTimer = 0;
 
     this.handleWheel = this.handleWheel.bind(this);
     this.handleMouseDown = this.handleMouseDown.bind(this);
@@ -343,6 +345,7 @@ class ComparisonPanel {
   }
 
   destroy() {
+    this.cancelLoadingTimer();
     this.methodTag.removeEventListener('click', this.handleMethodTagClick);
     this.stage.removeEventListener('wheel', this.handleWheel);
     this.stage.removeEventListener('mousedown', this.handleMouseDown);
@@ -379,7 +382,14 @@ class ComparisonPanel {
     this.canvasContext.clearRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
-  enterLoadingState() {
+  cancelLoadingTimer() {
+    if (this.loadingTimer) {
+      window.clearTimeout(this.loadingTimer);
+      this.loadingTimer = 0;
+    }
+  }
+
+  showLoadingState() {
     this.image = null;
     this.naturalSize = null;
     this.hoverPoint = null;
@@ -391,7 +401,21 @@ class ComparisonPanel {
     this.updateCursor();
   }
 
+  scheduleLoadingState() {
+    this.cancelLoadingTimer();
+
+    // Defer the loading indicator so cached images (e.g. cycling models in
+    // Switch mode) swap in without flashing the loading screen. The previously
+    // drawn image stays visible until either the new image arrives or the delay
+    // elapses for a genuinely slow load.
+    this.loadingTimer = window.setTimeout(() => {
+      this.loadingTimer = 0;
+      this.showLoadingState();
+    }, LOADING_INDICATOR_DELAY_MS);
+  }
+
   applyLoadedImage(image, imagePath, imageLabel) {
+    this.cancelLoadingTimer();
     this.image = image;
     this.imagePath = imagePath;
     this.imageLabel = imageLabel;
@@ -406,6 +430,7 @@ class ComparisonPanel {
   }
 
   handleImageError() {
+    this.cancelLoadingTimer();
     this.image = null;
     this.naturalSize = null;
     this.element.classList.remove('is-loading');
@@ -463,7 +488,7 @@ class ComparisonPanel {
     }
 
     this.metaTag.textContent = 'Loading...';
-    this.enterLoadingState();
+    this.scheduleLoadingState();
     this.loadImageSource(imagePath, imageLabel);
   }
 
