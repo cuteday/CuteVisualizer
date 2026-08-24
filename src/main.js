@@ -825,6 +825,7 @@ class CuteVisualizerApp {
       methodInfoOpen: true,
       imageInfoOpen: true,
       metricColorModes: {},
+      methodSearch: '',
       imageSearch: '',
       viewport: { ...DEFAULT_VIEWPORT },
       themeColor: this.loadThemeColor(),
@@ -900,8 +901,26 @@ class CuteVisualizerApp {
               <div class="section-label">Methods</div>
               <div class="section-title">Select the methods to visualize. </div>
             </div>
+            <div class="method-search-row">
+              <input
+                id="methodSearch"
+                class="search-input method-search-input"
+                type="search"
+                placeholder="Filter methods by name"
+                aria-label="Search methods by name"
+                aria-controls="methodsList"
+                autocomplete="off"
+                spellcheck="false"
+              />
+            </div>
             <div class="strip-header-side">
-              <div class="section-meta" id="methodSectionMeta"></div>
+              <div
+                class="section-meta"
+                id="methodSectionMeta"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+              ></div>
               <div class="mode-toggle-mount" id="modeToggleMount"></div>
             </div>
           </div>
@@ -961,6 +980,7 @@ class CuteVisualizerApp {
     `;
 
     this.methodsList = document.getElementById('methodsList');
+    this.methodSearchInput = document.getElementById('methodSearch');
     this.methodSectionMeta = document.getElementById('methodSectionMeta');
     this.modeToggleMount = document.getElementById('modeToggleMount');
     this.workspace = this.root.querySelector('.workspace');
@@ -979,6 +999,11 @@ class CuteVisualizerApp {
     this.footerBrand = document.getElementById('footerBrand');
     this.footerStatus = document.getElementById('footerStatus');
     this.footerControls = document.getElementById('footerControls');
+
+    this.methodSearchInput.addEventListener('input', (event) => {
+      this.state.methodSearch = event.target.value;
+      this.updateMethodSelector();
+    });
 
     this.imageSearchInput.addEventListener('input', (event) => {
       this.state.imageSearch = event.target.value;
@@ -1573,6 +1598,21 @@ class CuteVisualizerApp {
       0,
       availableMethods.length - 1,
     );
+  }
+
+  getFilteredMethods() {
+    if (!this.state.manifest) {
+      return [];
+    }
+
+    const query = this.state.methodSearch.trim().toLowerCase();
+    if (!query) {
+      return this.state.manifest.methods;
+    }
+
+    return this.state.manifest.methods.filter((method) => {
+      return typeof method.label === 'string' && method.label.toLowerCase().includes(query);
+    });
   }
 
   getFilteredImages() {
@@ -2709,6 +2749,9 @@ class CuteVisualizerApp {
     clearElement(this.methodsList);
 
     const manifest = this.state.manifest;
+    this.methodSearchInput.disabled =
+      this.state.loading || !manifest || !manifest.methods.length;
+
     if (!manifest || !manifest.methods.length) {
       this.methodsList.appendChild(
         createElement(
@@ -2724,10 +2767,24 @@ class CuteVisualizerApp {
     const availableMethods = this.getAvailableMethodIds();
     const selectedSet = new Set(this.state.selectedMethodIds);
     const availableCount = availableMethods.size;
+    const filteredMethods = this.getFilteredMethods();
+    const hasSearchQuery = Boolean(this.state.methodSearch.trim());
 
-    this.methodSectionMeta.textContent = `${this.state.selectedMethodIds.length} selected • ${availableCount} for this image`;
+    this.methodSectionMeta.textContent = hasSearchQuery
+      ? `${this.state.selectedMethodIds.length} selected • ${filteredMethods.length}/${manifest.methods.length} shown`
+      : `${this.state.selectedMethodIds.length} selected • ${availableCount} for this image`;
 
-    manifest.methods.forEach((method) => {
+    if (!filteredMethods.length) {
+      const emptyState = createElement(
+        'div',
+        'empty-inline',
+        'No methods matched the current search filter.',
+      );
+      this.methodsList.appendChild(emptyState);
+      return;
+    }
+
+    filteredMethods.forEach((method) => {
       const isAvailable = availableMethods.has(method.id);
       const isSelected = selectedSet.has(method.id);
       const shouldDisable = !isAvailable;
