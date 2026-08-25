@@ -187,6 +187,7 @@ code {
 
 .method-option {
   position: relative;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -198,6 +199,7 @@ code {
   border: 0;
   border-radius: 0;
   background: var(--surface);
+  overflow: hidden;
   text-align: left;
   transition:
     background-color 120ms ease,
@@ -216,6 +218,10 @@ code {
   color: #ffffff;
 }
 
+.method-option.is-selected:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 88%, var(--text-primary) 12%);
+}
+
 .method-option.is-unavailable,
 .method-option:disabled {
   background: var(--surface-muted);
@@ -223,12 +229,31 @@ code {
 }
 
 .method-option-title-row {
+  position: relative;
+  z-index: 1;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
   gap: 0.32rem;
   width: 100%;
   min-width: 0;
+}
+
+.method-option-position {
+  position: absolute;
+  top: 50%;
+  left: 0.55rem;
+  z-index: 0;
+  transform: translateY(-50%);
+  color: rgba(255, 255, 255, 0.44);
+  font-size: clamp(1.8rem, 2.2vw, 2.3rem);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.06em;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  user-select: none;
 }
 
 .method-option-title {

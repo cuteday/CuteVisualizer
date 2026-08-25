@@ -1539,20 +1539,22 @@ class CuteVisualizerApp {
       return [];
     }
 
-    const selectedSet = new Set(this.state.selectedMethodIds);
-    return this.state.manifest.methods.filter((method) => selectedSet.has(method.id));
+    const methodsById = new Map(
+      this.state.manifest.methods.map((method) => [method.id, method]),
+    );
+    return this.state.selectedMethodIds
+      .map((methodId) => methodsById.get(methodId))
+      .filter(Boolean);
   }
 
   getAvailableSelectedMethods() {
     const currentImage = this.getCurrentImage();
-    if (!this.state.manifest || !currentImage) {
+    if (!currentImage) {
       return [];
     }
 
-    const selectedSet = new Set(this.state.selectedMethodIds);
-    return this.state.manifest.methods.filter(
-      (method) => selectedSet.has(method.id) && getImageMethodIds(currentImage).includes(method.id),
-    );
+    const availableIds = new Set(getImageMethodIds(currentImage));
+    return this.getSelectedMethods().filter((method) => availableIds.has(method.id));
   }
 
   getInfoDrawerMethodIds(image = this.getCurrentImage()) {
@@ -1762,7 +1764,7 @@ class CuteVisualizerApp {
     this.closeInfoDrawer();
     this.syncUrlFromState();
     this.updateSidebar({ previousImageId });
-    this.updateMethodSelector();
+    this.updateMethodSelector({ preserveScroll: true });
     this.updateToolbar();
     this.renderGrid();
     this.renderAttributePanel();
@@ -1799,7 +1801,7 @@ class CuteVisualizerApp {
     this.normalizeSwitchState({ resetIndex: this.state.comparisonMode === COMPARISON_MODES.SWITCH });
     this.normalizeInfoDrawerState();
     this.syncUrlFromState();
-    this.updateMethodSelector();
+    this.updateMethodSelector({ preserveScroll: true });
     this.updateToolbar();
     this.renderGrid();
     this.renderAttributePanel();
@@ -2744,8 +2746,9 @@ class CuteVisualizerApp {
     this.syncThemeControls();
   }
 
-  updateMethodSelector() {
+  updateMethodSelector({ preserveScroll = false } = {}) {
     this.hideFloatingTooltip();
+    const previousScrollTop = preserveScroll ? this.methodsList.scrollTop : 0;
     clearElement(this.methodsList);
 
     const manifest = this.state.manifest;
@@ -2761,11 +2764,14 @@ class CuteVisualizerApp {
         ),
       );
       this.methodSectionMeta.textContent = '0 / 0';
+      this.methodsList.scrollTop = previousScrollTop;
       return;
     }
 
     const availableMethods = this.getAvailableMethodIds();
-    const selectedSet = new Set(this.state.selectedMethodIds);
+    const selectionOrderById = new Map(
+      this.state.selectedMethodIds.map((methodId, index) => [methodId, index + 1]),
+    );
     const availableCount = availableMethods.size;
     const filteredMethods = this.getFilteredMethods();
     const hasSearchQuery = Boolean(this.state.methodSearch.trim());
@@ -2781,19 +2787,26 @@ class CuteVisualizerApp {
         'No methods matched the current search filter.',
       );
       this.methodsList.appendChild(emptyState);
+      this.methodsList.scrollTop = previousScrollTop;
       return;
     }
 
     filteredMethods.forEach((method) => {
       const isAvailable = availableMethods.has(method.id);
-      const isSelected = selectedSet.has(method.id);
+      const selectionOrder = selectionOrderById.get(method.id);
+      const isSelected = selectionOrder !== undefined;
       const shouldDisable = !isAvailable;
 
       const button = createElement('button', 'method-option');
       button.type = 'button';
       button.disabled = shouldDisable;
       button.setAttribute('aria-pressed', String(isSelected));
-      button.setAttribute('aria-label', `${method.label}. ${method.imageCount} indexed images.`);
+      button.setAttribute(
+        'aria-label',
+        isSelected
+          ? `${method.label}. Selection order ${selectionOrder}. ${method.imageCount} indexed images.`
+          : `${method.label}. ${method.imageCount} indexed images.`,
+      );
       if (isSelected) {
         button.classList.add('is-selected');
       }
@@ -2807,6 +2820,15 @@ class CuteVisualizerApp {
       badge.setAttribute('aria-hidden', 'true');
 
       titleRow.append(title, badge);
+      if (isSelected) {
+        const position = createElement(
+          'span',
+          'method-option-position',
+          String(selectionOrder),
+        );
+        position.setAttribute('aria-hidden', 'true');
+        button.append(position);
+      }
       button.append(titleRow);
       button.addEventListener('mouseenter', () => this.showFloatingTooltip(button, method.label));
       button.addEventListener('mouseleave', () => this.hideFloatingTooltip(button));
@@ -2818,6 +2840,7 @@ class CuteVisualizerApp {
       });
       this.methodsList.appendChild(button);
     });
+    this.methodsList.scrollTop = previousScrollTop;
   }
 
   updateSidebar({ previousImageId = null } = {}) {

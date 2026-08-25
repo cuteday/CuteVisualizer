@@ -113,6 +113,7 @@ The sample-data generator writes deterministic `demo-*` method folders, includin
 
 - Use the top checkbox row to choose which methods are visible.
 - Use the method search field to narrow the choices; selected methods stay active when filtered out.
+- Selected methods are compared in click order, shown by the watermark number on each selected button.
 - Use the left sidebar to select the image key being compared.
 - `Grids` shows all selected methods at once.
 - `Switch` shows one selected method at a time; press `Space` to cycle.
