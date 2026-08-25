@@ -120,9 +120,10 @@ The sample-data generator writes deterministic `demo-*` method folders, includin
 - Click the `Cols` capsule to cycle between automatic, 2-, 3-, and 4-column grid layouts.
 - `Switch` shows one selected method at a time; press `Space` to cycle.
 - `Data` shows method-level and image-level metadata tables for the current image.
-- Scroll inside any comparison panel to zoom.
-- Drag with the left mouse button to pan once zoomed in.
-- Use `Reset View` to return to the fit-to-panel view.
+- Images fill each pane by default while preserving their aspect ratio; drag to inspect cropped overflow.
+- Scroll inside any comparison panel to zoom, including below 100% down to the full-image fit.
+- Drag with the left mouse button whenever the image extends beyond the pane.
+- Use `Reset View` to return to the centered fill-to-panel view.
 - Click a method label in a panel or a method column in `Data` mode to open the Info drawer.
 - Reload the page or click `Reload Manifest` after regenerating the manifest.
 

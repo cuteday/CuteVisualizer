@@ -4,7 +4,6 @@ export const DEFAULT_VIEWPORT = {
   centerY: 0.5,
 };
 
-const MIN_ZOOM = 1;
 const MAX_ZOOM = 30;
 const ZOOM_FACTOR = 1.10;
 
@@ -17,11 +16,19 @@ function roundPx(value) {
 }
 
 function getScaledSize(container, natural, zoom) {
-  const fitScale = Math.min(container.width / natural.width, container.height / natural.height);
+  const fillScale = Math.max(container.width / natural.width, container.height / natural.height);
   return {
-    width: natural.width * fitScale * zoom,
-    height: natural.height * fitScale * zoom,
+    width: natural.width * fillScale * zoom,
+    height: natural.height * fillScale * zoom,
   };
+}
+
+export function getMinimumZoom(container, natural) {
+  const widthScale = container.width / natural.width;
+  const heightScale = container.height / natural.height;
+  const containScale = Math.min(widthScale, heightScale);
+  const coverScale = Math.max(widthScale, heightScale);
+  return coverScale > 0 ? containScale / coverScale : DEFAULT_VIEWPORT.zoom;
 }
 
 function clampOrigin(origin, viewportSize, scaledSize) {
@@ -75,9 +82,10 @@ export function getImageRect(viewport, container, natural) {
 
 export function zoomViewportAtPoint(viewport, container, natural, cursorX, cursorY, direction) {
   const currentRect = toDisplayRect(viewport, container, natural);
+  const minimumZoom = getMinimumZoom(container, natural);
   const nextZoom = clamp(
     direction > 0 ? viewport.zoom * ZOOM_FACTOR : viewport.zoom / ZOOM_FACTOR,
-    MIN_ZOOM,
+    minimumZoom,
     MAX_ZOOM,
   );
 
@@ -110,6 +118,15 @@ export function panViewport(viewport, container, natural, deltaX, deltaY) {
   return toViewportFromRect(nextRect, container, viewport.zoom);
 }
 
-export function canPan(viewport) {
-  return viewport.zoom > 1;
+export function canPan(viewport, container = null, natural = null) {
+  if (viewport.zoom > 1) {
+    return true;
+  }
+
+  if (!container || !natural) {
+    return false;
+  }
+
+  const scaled = getScaledSize(container, natural, viewport.zoom);
+  return scaled.width > container.width + 0.5 || scaled.height > container.height + 0.5;
 }

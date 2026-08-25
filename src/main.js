@@ -39,6 +39,7 @@ const URL_PARAM_MANIFEST = 'manifest';
 const SIDEBAR_THUMBNAIL_SIZE = 96;
 const SIDEBAR_THUMBNAIL_CONCURRENCY = 3;
 const LOADING_INDICATOR_DELAY_MS = 180;
+const MIN_SHAREABLE_ZOOM = 0.0001;
 const MAX_SHAREABLE_ZOOM = 30;
 const VIEWPORT_URL_PRECISION = 4;
 const DISPLAY_FLOAT_PRECISION = 5;
@@ -157,7 +158,7 @@ function parseViewportFromUrl(rawValue) {
 
   const [zoom, centerX, centerY] = parts;
   return {
-    zoom: clamp(zoom, DEFAULT_VIEWPORT.zoom, MAX_SHAREABLE_ZOOM),
+    zoom: clamp(zoom, MIN_SHAREABLE_ZOOM, MAX_SHAREABLE_ZOOM),
     centerX: clamp(centerX, 0, 1),
     centerY: clamp(centerY, 0, 1),
   };
@@ -509,6 +510,7 @@ class ComparisonPanel {
 
   handleResize() {
     this.refreshLayout();
+    this.updateCursor();
   }
 
   handleStageMouseMove(event) {
@@ -550,7 +552,11 @@ class ComparisonPanel {
   }
 
   handleMouseDown(event) {
-    if (event.button !== 0 || !this.naturalSize || !canPan(this.viewport)) {
+    if (
+      event.button !== 0 ||
+      !this.naturalSize ||
+      !canPan(this.viewport, this.getStageSize(), this.naturalSize)
+    ) {
       return;
     }
 
@@ -623,7 +629,13 @@ class ComparisonPanel {
       return;
     }
 
-    this.stage.style.cursor = canPan(this.viewport) ? 'grab' : 'zoom-in';
+    this.stage.style.cursor = canPan(
+      this.viewport,
+      this.getStageSize(),
+      this.naturalSize,
+    )
+      ? 'grab'
+      : 'zoom-in';
   }
 
   drawCanvas() {
