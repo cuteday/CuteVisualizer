@@ -6,7 +6,7 @@ CuteVisualizer is a static web app for comparing image outputs from multiple met
 
 ### Features
 
-- compares any number of methods with automatic layouts
+- compares any number of methods with automatic or fixed 2–4 column layouts
 - supports `Grids`, `Switch`, and `Data` modes for image comparison and metadata inspection
 - keeps zoom and pan synchronized across every visible image panel and stores the current view in a shareable URL
 - supports optional per-method `metadata.json` files, shown in the Info drawer and in `Data` mode tables
@@ -112,10 +112,12 @@ The sample-data generator writes deterministic `demo-*` method folders, includin
 ## Usage Notes
 
 - Use the top checkbox row to choose which methods are visible.
+- A fresh page or dataset selects the first two available methods by default.
 - Use the method search field to narrow the choices; selected methods stay active when filtered out.
 - Selected methods are compared in click order, shown by the watermark number on each selected button.
 - Use the left sidebar to select the image key being compared.
 - `Grids` shows all selected methods at once.
+- Click the `Cols` capsule to cycle between automatic, 2-, 3-, and 4-column grid layouts.
 - `Switch` shows one selected method at a time; press `Space` to cycle.
 - `Data` shows method-level and image-level metadata tables for the current image.
 - Scroll inside any comparison panel to zoom.

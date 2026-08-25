@@ -635,6 +635,10 @@ code {
     border-color 120ms ease;
 }
 
+.toolbar-column-control {
+  appearance: none;
+}
+
 .primary-button,
 .secondary-button,
 .footer-button {
@@ -1188,6 +1192,26 @@ code {
   min-height: 0;
   overflow: hidden;
   background: var(--surface);
+}
+
+.comparison-panel-placeholder {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--surface-muted) 78%, var(--accent-soft) 22%);
+  color: var(--text-secondary);
+}
+
+.comparison-panel-placeholder-label {
+  padding: 0.28rem 0.52rem;
+  border: 1px dashed var(--border-strong);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .comparison-panel.is-error .panel-header {

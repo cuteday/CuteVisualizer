@@ -23,7 +23,7 @@ import {
 
 const THEME_STORAGE_KEY = 'cute-visualizer:theme-color';
 const SIDEBAR_WIDTH_STORAGE_KEY = 'cute-visualizer:sidebar-width';
-const DEFAULT_SELECTION_COUNT = 4;
+const DEFAULT_SELECTION_COUNT = 2;
 const DEFAULT_SIDEBAR_WIDTH = 272;
 const MIN_SIDEBAR_WIDTH = 180;
 const MAX_SIDEBAR_WIDTH = 420;
@@ -33,6 +33,7 @@ const URL_PARAM_IMAGE = 'img';
 const URL_PARAM_METHODS = 'methods';
 const URL_PARAM_MODE = 'mode';
 const URL_PARAM_CROP = 'crop';
+const URL_PARAM_GRID_COLUMNS = 'cols';
 const URL_PARAM_DATASET = 'dataset';
 const URL_PARAM_MANIFEST = 'manifest';
 const SIDEBAR_THUMBNAIL_SIZE = 96;
@@ -46,6 +47,7 @@ const COMPARISON_MODES = {
   SWITCH: 'switch',
   DATA: 'data',
 };
+const GRID_COLUMN_OPTIONS = ['auto', 2, 3, 4];
 const NEXT_METRIC_COLOR_MODE = {
   off: 'lower',
   lower: 'higher',
@@ -159,6 +161,19 @@ function parseViewportFromUrl(rawValue) {
     centerX: clamp(centerX, 0, 1),
     centerY: clamp(centerY, 0, 1),
   };
+}
+
+function parseGridColumnPreference(rawValue) {
+  if (!rawValue) {
+    return null;
+  }
+
+  if (rawValue === 'auto') {
+    return 'auto';
+  }
+
+  const parsedValue = Number(rawValue);
+  return GRID_COLUMN_OPTIONS.includes(parsedValue) ? parsedValue : null;
 }
 
 function formatDisplayValue(value) {
@@ -699,13 +714,19 @@ class ComparisonGridView {
     this.options = options;
     this.panels = [];
     this.gridElement = null;
+    this.isSinglePanelLayout = false;
   }
 
   render() {
     this.destroy();
     clearElement(this.container);
 
-    const { methods, image, showSwitchHint = false } = this.options;
+    const {
+      methods,
+      image,
+      preferredColumns = 'auto',
+      showSwitchHint = false,
+    } = this.options;
     if (!methods.length) {
       const emptyState = createElement('div', 'comparison-empty');
       emptyState.innerHTML = `
@@ -716,7 +737,7 @@ class ComparisonGridView {
       return;
     }
 
-    const layout = getGridLayout(methods.length);
+    const layout = getGridLayout(methods.length, preferredColumns);
     const grid = createElement('div', 'comparison-grid');
     this.gridElement = grid;
     grid.style.setProperty('--grid-columns', String(layout.columns));
@@ -742,6 +763,23 @@ class ComparisonGridView {
       panel.mount(grid);
       this.panels.push(panel);
     });
+
+    if (preferredColumns !== 'auto' && GRID_COLUMN_OPTIONS.includes(preferredColumns)) {
+      const emptyPaneCount = Math.max(
+        0,
+        layout.columns * layout.rows - this.panels.length,
+      );
+      for (let index = 0; index < emptyPaneCount; index += 1) {
+        const emptyPane = createElement('div', 'comparison-panel-placeholder');
+        emptyPane.appendChild(
+          createElement('span', 'comparison-panel-placeholder-label', 'Empty pane'),
+        );
+        grid.appendChild(emptyPane);
+      }
+    }
+
+    this.isSinglePanelLayout =
+      layout.columns === 1 && layout.rows === 1 && this.panels.length === 1;
   }
 
   setViewport(viewport) {
@@ -750,7 +788,13 @@ class ComparisonGridView {
   }
 
   canReuseSinglePanel(options) {
-    return Boolean(this.gridElement) && this.panels.length === 1 && options.methods.length === 1;
+    return (
+      Boolean(this.gridElement) &&
+      this.isSinglePanelLayout &&
+      this.panels.length === 1 &&
+      options.methods.length === 1 &&
+      (options.preferredColumns ?? 'auto') === 'auto'
+    );
   }
 
   updateSinglePanel(options) {
@@ -783,6 +827,7 @@ class ComparisonGridView {
     this.panels.forEach((panel) => panel.destroy());
     this.panels = [];
     this.gridElement = null;
+    this.isSinglePanelLayout = false;
   }
 }
 
@@ -798,6 +843,7 @@ class CuteVisualizerApp {
     this.isResizingSidebar = false;
     this.themePresetSelect = null;
     this.themeColorInput = null;
+    this.toolbarColumnControl = null;
     this.sidebarItems = new Map();
     this.sidebarOrderKey = '';
     this.sidebarScrollTop = 0;
@@ -816,6 +862,7 @@ class CuteVisualizerApp {
       selectedImageId: null,
       selectedMethodIds: [],
       comparisonMode: COMPARISON_MODES.GRIDS,
+      preferredGridColumns: 'auto',
       activeSwitchIndex: 0,
       infoDrawerOpen: false,
       infoDrawerImageId: null,
@@ -1120,6 +1167,7 @@ class CuteVisualizerApp {
     const methodsParam = params.get(URL_PARAM_METHODS);
     const modeParam = params.get(URL_PARAM_MODE);
     const cropParam = params.get(URL_PARAM_CROP);
+    const gridColumnsParam = params.get(URL_PARAM_GRID_COLUMNS);
 
     return {
       imageId: imageId || null,
@@ -1127,6 +1175,7 @@ class CuteVisualizerApp {
         ? methodsParam.split(',').map((value) => value.trim()).filter(Boolean)
         : null,
       comparisonMode: Object.values(COMPARISON_MODES).includes(modeParam) ? modeParam : null,
+      preferredGridColumns: parseGridColumnPreference(gridColumnsParam),
       viewport: parseViewportFromUrl(cropParam),
     };
   }
@@ -1161,6 +1210,10 @@ class CuteVisualizerApp {
 
     if (urlState.comparisonMode) {
       this.state.comparisonMode = urlState.comparisonMode;
+    }
+
+    if (urlState.preferredGridColumns !== null) {
+      this.state.preferredGridColumns = urlState.preferredGridColumns;
     }
 
     return urlState;
@@ -1206,6 +1259,15 @@ class CuteVisualizerApp {
     }
 
     url.searchParams.set(URL_PARAM_MODE, this.state.comparisonMode);
+
+    if (this.state.preferredGridColumns === 'auto') {
+      url.searchParams.delete(URL_PARAM_GRID_COLUMNS);
+    } else {
+      url.searchParams.set(
+        URL_PARAM_GRID_COLUMNS,
+        String(this.state.preferredGridColumns),
+      );
+    }
 
     if (viewportDiffersFromDefault(this.state.viewport)) {
       url.searchParams.set(URL_PARAM_CROP, serializeViewportForUrl(this.state.viewport));
@@ -1738,9 +1800,18 @@ class CuteVisualizerApp {
     const availableIds = currentImage ? getImageMethodIds(currentImage) : [];
     const availableSet = new Set(availableIds);
     const cleaned = this.state.selectedMethodIds.filter((methodId) => availableSet.has(methodId));
+    const orderedAvailableIds = this.state.manifest
+      ? this.state.manifest.methods
+          .map((method) => method.id)
+          .filter((methodId) => availableSet.has(methodId))
+      : availableIds;
 
     if (!cleaned.length && availableIds.length) {
-      this.state.selectedMethodIds = availableIds.slice(0, Math.min(DEFAULT_SELECTION_COUNT, availableIds.length));
+      const defaultIds = orderedAvailableIds.length ? orderedAvailableIds : availableIds;
+      this.state.selectedMethodIds = defaultIds.slice(
+        0,
+        Math.min(DEFAULT_SELECTION_COUNT, defaultIds.length),
+      );
     } else {
       this.state.selectedMethodIds = cleaned;
     }
@@ -1819,6 +1890,18 @@ class CuteVisualizerApp {
     this.updateToolbar();
     this.renderGrid();
     this.renderAttributePanel();
+  }
+
+  cycleGridColumns() {
+    const currentIndex = GRID_COLUMN_OPTIONS.indexOf(this.state.preferredGridColumns);
+    const nextIndex = (Math.max(currentIndex, 0) + 1) % GRID_COLUMN_OPTIONS.length;
+    this.state.preferredGridColumns = GRID_COLUMN_OPTIONS[nextIndex];
+    this.syncUrlFromState();
+    this.updateToolbarStats();
+
+    if (this.state.comparisonMode === COMPARISON_MODES.GRIDS) {
+      this.renderGrid();
+    }
   }
 
   updateModeToggle() {
@@ -2910,6 +2993,7 @@ class CuteVisualizerApp {
 
   updateToolbar() {
     clearElement(this.toolbarCard);
+    this.toolbarColumnControl = null;
 
     const currentImage = this.getCurrentImage();
     const navList = this.getImageNavigationList();
@@ -2953,6 +3037,15 @@ class CuteVisualizerApp {
     }
 
     const infoCluster = createElement('div', 'toolbar-stats');
+    if (this.state.comparisonMode === COMPARISON_MODES.GRIDS) {
+      this.toolbarColumnControl = createElement(
+        'button',
+        'toolbar-stat toolbar-column-control',
+      );
+      this.toolbarColumnControl.type = 'button';
+      this.toolbarColumnControl.addEventListener('click', () => this.cycleGridColumns());
+      infoCluster.appendChild(this.toolbarColumnControl);
+    }
     this.toolbarZoomStat = createElement('span', 'toolbar-stat');
     this.toolbarPanelStat = createElement('span', 'toolbar-stat');
     this.toolbarImageStat = createElement('span', 'toolbar-stat');
@@ -2971,6 +3064,21 @@ class CuteVisualizerApp {
     const navList = this.getImageNavigationList();
     const currentIndex = navList.findIndex((image) => image.id === this.state.selectedImageId);
     const availableSelectedMethods = this.getAvailableSelectedMethods();
+
+    if (this.toolbarColumnControl) {
+      const columnIndex = GRID_COLUMN_OPTIONS.indexOf(this.state.preferredGridColumns);
+      const normalizedIndex = Math.max(columnIndex, 0);
+      const currentColumns = GRID_COLUMN_OPTIONS[normalizedIndex];
+      const nextColumns = GRID_COLUMN_OPTIONS[(normalizedIndex + 1) % GRID_COLUMN_OPTIONS.length];
+      const describeColumns = (value) =>
+        value === 'auto' ? 'automatic layout' : `${value} columns`;
+      const controlDescription =
+        `Grid columns: ${describeColumns(currentColumns)}. ` +
+        `Activate to use ${describeColumns(nextColumns)}.`;
+      this.toolbarColumnControl.textContent = `Cols: ${currentColumns}`;
+      this.toolbarColumnControl.setAttribute('aria-label', controlDescription);
+      this.toolbarColumnControl.title = controlDescription;
+    }
 
     this.toolbarZoomStat.textContent =
       this.state.comparisonMode === COMPARISON_MODES.DATA
@@ -3053,6 +3161,7 @@ class CuteVisualizerApp {
       methods: renderedMethods,
       image: currentImage,
       viewport: this.state.viewport,
+      preferredColumns: isSwitchMode ? 'auto' : this.state.preferredGridColumns,
       onViewportChange: (nextViewport) => this.setViewport(nextViewport),
       onInfoRequest: (imageId, methodId) => this.openInfoDrawer(imageId, methodId),
       showSwitchHint: isSwitchMode && selectedMethods.length > 1,

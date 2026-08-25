@@ -1,4 +1,14 @@
-export function getGridLayout(count) {
+export function getGridLayout(count, preferredColumns = 'auto') {
+  if ([2, 3, 4].includes(preferredColumns)) {
+    return {
+      columns: preferredColumns,
+      rows: Math.max(
+        1,
+        Math.ceil(Math.max(count, preferredColumns) / preferredColumns),
+      ),
+    };
+  }
+
   if (count <= 1) {
     return { columns: 1, rows: 1 };
   }
